@@ -1,156 +1,110 @@
-// Jenkinsfile for Hazelcast Logging Configuration Pipeline
-//https://claude.ai/chat/ed8fc0bc-1604-45a4-8e5c-3be32b448c77
+//https://gemini.google.com/app/75da30c60909a5e7?is_sa=1&is_sa=1&android-min-version=301356232&ios-min-version=322.0&campaign_id=bkws&utm_source=sem&utm_source=google&utm_medium=paid-media&utm_medium=cpc&utm_campaign=bkws&utm_campaign=2024enIN_gemfeb&pt=9008&mt=8&ct=p-growth-sem-bkws&gad_source=1&gclid=Cj0KCQiA4-y8BhC3ARIsAHmjC_HxmBNwqJO0q8fqwCAqW9j9YZDu7dJP7e897gXI5UGFNs_zqzc9Qg4aAu9sEALw_wcB&gclsrc=aw.ds
 pipeline {
     agent { label 'cm-linux' }
-    
-    environment {
-        HZ_ROOT = '/opt/HZ'
-        LOG4J_VERSION = '2.21.0'
-        COMMON_LIB = "${HZ_ROOT}/commonlib"
-    }
-    
     stages {
-        stage('Initialize') {
+        stage('HZ-diagnostic-logging') {
             steps {
                 script {
                     cleanWs()
                     deleteDir()
-                    
-                    // Extract folder name from workspace path
-                    def folderParts = pwd().split("/")
-                    def folderName = folderParts[folderParts.length - 2]
-                    
-                    // Clone required repositories
-                    git branch: "main", 
-                        credentialsId: "sbiNET-G3-DEV-GITHUB-OAUTH", 
-                        url: "https://alm-github.systems.uk.sbi/dtc-hazelcast/Hazelcast-Services.git"
-                    
-                    // Setup environment configuration
-                    dir("${WORKSPACE}/${folderName}/") {
+                    def userName
+                    def password
+                    def getFolder = pwd().split("/")
+                    def foldername = getFolder[getFolder.length - 2]
+
+                    git branch: "main", credentialsId: "SBINET-G3-DEV-GITHUB-OAUTH", url: "https://alm-github.systems.uk.SBI/dtc-hazelcast/Hazelcast-Services.git"
+                    sh("mkdir jqdir")
+                    dir('jqdir') {
+                        git branch: "master", credentialsId: "SBINET-G3-DEV-GITHUB-OAUTH", url: "https://alm-github.systems.uk.SBI/sprintnet/jq.git"
+                    }
+                    sh "chmod +x ./jq"
+                    sh "mv ./jq ../"
+
+                    dir("${workspace}/${foldername}/") {
+                        sh "{ set +x; } 2>/dev/null;"
                         sh "cat Environments.groovy >> env.txt"
-                        def envList = readFile('env.txt')
-                        
+                        def envList = readFile 'env.txt'
+
                         properties([
                             parameters([
-                                choice(name: 'Environment', choices: envList, description: 'Select Environment'),
-                                choice(name: 'ACTION', choices: ['setup', 'switch'], description: 'Action to perform'),
-                                choice(name: 'LOGGING_TYPE', choices: ['log4j2', 'jdk'], description: 'Logging system to use'),
-                                string(name: 'HostName', defaultValue: '', description: 'Enter Server Name'),
-                                string(name: 'cr_number', defaultValue: '', description: 'Enter CR Number for Production Deployment')
+                                [$class: 'ChoiceParameter', choiceType: 'PT_SINGLE_SELECT', filterLength: 1, filterable: false, name: 'Environment', script: [$class: 'GroovyScript', fallbackScript: [classpath: [], sandbox: true, script: "return['Could not get The environments']"], script: [classpath: [], sandbox: true, script: "${envList}"]]],
+                                [$class: 'ChoiceParameter', choiceType: 'PT_SINGLE_SELECT', filterLength: 1, filterable: false, name: 'Logging_type', script: [$class: 'GroovyScript', fallbackScript: [classpath: [], sandbox: true, script: "return [ 'Could not get loggign option']"], script: [classpath: [], sandbox: true, script: '''return ["jdk", "log4j2"]''']]],
+                                [$class: 'StringParameterDefinition', defaultValue: '', description: 'Please enter Server Name', name: 'HostName'],
+                                [$class: 'StringParameterDefinition', defaultValue: '', description: 'Please enter sourcePath', name: 'sourcePath'],
+                                [$class: 'StringParameterDefinition', defaultValue: '', description: 'Please enter destPath', name: 'destPath'],
+                                [$class: 'StringParameterDefinition', defaultValue: '', description: 'Please enter artifactId', name: 'artifactId'],
+                                [$class: 'StringParameterDefinition', defaultValue: '', description: 'Please enter artifact name which want to deploy else keep empty for config file deployment', name: 'artifactName'],
+                                [$class: 'StringParameterDefinition', defaultValue: '', description: 'Please enter CR Number for Production Deployment', name: 'cr_number']
                             ])
                         ])
-                    }
-                }
-            }
-        }
-        
-        stage('Prepare Configuration') {
-            steps {
-                script {
-                    // Validate parameters
-                    if (params.HostName.trim() == "") {
-                        error "Error! Host_Name is Empty. Please enter a valid Host_Name value."
-                    }
-                    
-                    // Load deployment configurations
-                    def deployments = load "${WORKSPACE}/deployment.groovy"
-                    def templateId = params.Environment.toLowerCase().startsWith("prod") ? "64468" : "110777"
-                    def containers = "container01"
-                    
-                    // Prepare logging configurations
-                    writeFile file: "${WORKSPACE}/log4j2.xml", text: '''<?xml version="1.0" encoding="UTF-8"?>
-                        <Configuration status="INFO">
-                            <Appenders>
-                                <RollingFile name="LogToRollingFile" 
-                                            fileName="/opt/HZ/diagnostics/diagnostics.log"
-                                            filePattern="/opt/HZ/diagnostics/diagnostics-%i.log">
-                                    <PatternLayout>
-                                        <Pattern>%d{ISO8601} %-5p [%c{1}] %m%n</Pattern>
-                                    </PatternLayout>
-                                    <Policies>
-                                        <SizeBasedTriggeringPolicy size="10 MB"/>
-                                    </Policies>
-                                    <DefaultRolloverStrategy max="10"/>
-                                </RollingFile>
-                            </Appenders>
-                            <Loggers>
-                                <Logger name="com.hazelcast.diagnostics" level="debug" additivity="false">
-                                    <AppenderRef ref="LogToRollingFile"/>
-                                </Logger>
-                            </Loggers>
-                        </Configuration>'''
-                        
-                    writeFile file: "${WORKSPACE}/jdk-logging.properties", text: '''handlers=java.util.logging.FileHandler
-                        .level=INFO
-                        java.util.logging.FileHandler.pattern=/opt/HZ/diagnostics/hazelcast.log
-                        java.util.logging.FileHandler.limit=10485760
-                        java.util.logging.FileHandler.count=10
-                        java.util.logging.FileHandler.formatter=java.util.logging.SimpleFormatter
-                        java.util.logging.SimpleFormatter.format=%1$tY-%1$tm-%1$td %1$tH:%1$tM:%1$tS.%1$tL %4$s %2$s: %5$s%6$s%n'''
-                    
-                    // Prepare extra vars for Ansible
-                    def extravars = [
-                        hostname: params.HostName,
-                        action: params.ACTION,
-                        logging_type: params.LOGGING_TYPE,
-                        hz_root: env.HZ_ROOT,
-                        log4j_version: env.LOG4J_VERSION,
-                        container: containers,
-                        env: params.Environment
-                    ]
-                    
-                    // Handle production environment
-                    if (params.Environment.toLowerCase().startsWith("prod")) {
-                        timeout(time: 120, unit: 'SECONDS') {
-                            def userInput = input(
-                                id: 'Input-username',
-                                parameters: [
-                                    string(name: 'Username', description: 'Enter Username:'),
-                                    password(name: 'Password', description: 'Enter Password:')
-                                ],
-                                submitterParameter: 'approver'
-                            )
-                            
-                            if (params.cr_number.trim() == "") {
-                                error "Error! CR Number is Empty for Production Environment."
-                            }
-                            
-                            extravars.cr_number = params.cr_number
+
+                        def templateId = "110777"
+                        def containers = "container01"
+                        def jqcli = "${workspace}/jq"
+                        def file = "Cluster.json"
+                        def clusterSafeUrl = "clusterSafeUrl.json"
+                        def clusterNameFile = "ClusterName.json"
+                        def deployments = load "${workspace}/deployment.groovy"
+                        def environment = "${params.Environment}"
+                        def loggingType = "${params.Logging_type}"
+                        def Hostname = "${params.HostName}"
+                        def artifactName = "${params.artifactName}"
+
+                        def Clusters_List = sh(script: """{ set +x; } 2>/dev/null; cat ${file} | ${jqcli} -r .'${environment}'""", returnStdout: true).trim()
+                        def Cluster_Safe_URL = sh(script: """{ set +x; } 2>/dev/null; cat ${clusterSafeUrl} | ${jqcli} -r .'${environment}'""", returnStdout: true).trim()
+
+                        if (Hostname == "") {
+                            println "Error! Host_Name is Empty. Please enter Host_Name value."
+                            sh "{ set +x; } 2>/dev/null; exit 1"
                         }
+
+                        // Fetch log4j JARs (using Maven - recommended)
+                        withMaven {
+                            sh "mvn dependency:get -DgroupId=org.apache.logging.log4j -DartifactId=log4j-api -Dversion=2.17.2 -Ddest=/opt/HZ/commonlib" // Replace with your desired version
+                            sh "mvn dependency:get -DgroupId=org.apache.logging.log4j -DartifactId=log4j-core -Dversion=2.17.2 -Ddest=/opt/HZ/commonlib" // Replace with your desired version
+                        }
+
+                        sh "mkdir -p /opt/HZ/commonlib" // Create the commonlib directory if it doesn't exist
+                        sh "chmod 755 /opt/HZ/commonlib/log4j-api-*.jar /opt/HZ/commonlib/log4j-core-*.jar"
+
+                        def extravars = [
+                            hostname: Hostname,
+                            artifactId: params.artifactId,
+                            cluster: Clusters_List,
+                            container: containers,
+                            env: environment,
+                            cluster_safe_url: Cluster_Safe_URL,
+                            Logging_type: loggingType,
+                            sourcePath: params.sourcePath,
+                            destPath: params.destPath,
+                            artifactName: artifactName
+                        ]
+
+                        if (environment.toLowerCase().startsWith("prod")) {
+                            timeout(time: 120, unit: 'SECONDS') {
+                                def userInput = input(id: 'Input-username', parameters: [[$class: 'StringParameterDefinition', defaultValue: '', description: 'Enter Username:', name: 'Username'], [$class: 'hudson.model.PasswordParameterDefinition', description: 'Enter Password:', name: 'Password']], submitterParameter: 'approver')
+                                userName = userInput['Username']
+                                password = userInput['Password'].toString()
+                                templateId = "64468"
+                                def env = "prod"
+                                def cr_number = "${params.cr_number}"
+
+                                if (cr_number == "") {
+                                    println "Error! CR Number is Empty for Production Environment."
+                                    sh "{ set +x; } 2>/dev/null; exit 1"
+                                }
+                                extravars.cr_number = cr_number
+                            }
+                        }
+
+                        def extravarsJson = groovy.json.JsonOutput.toJson(extravars)
+                        println("Extra-Vars are: " + extravarsJson)
+
+                        deployments.getApproval("Approve: To update config files into cluster", "HZ-approvers")
+                        deployments.triggerAnsibleTower(templateId, environment, extravarsJson, userName, password)
                     }
-                    
-                    // Get deployment approval and trigger Ansible
-                    deployments.getApproval("Approve: To execute logging configuration deployment", "HZ-approvers")
-                    deployments.triggerAnsibleTower(templateId, params.Environment, groovy.json.JsonOutput.toJson(extravars))
                 }
             }
-        }
-        
-        stage('Verify Configuration') {
-            steps {
-                script {
-                    // Run health check or verification steps
-                    def verificationCommand = params.LOGGING_TYPE == 'log4j2' ? 
-                        "grep 'log4j2' ${HZ_ROOT}/*/hazelcast.xml" :
-                        "grep 'jdk' ${HZ_ROOT}/*/hazelcast.xml"
-                        
-                    sshagent(['hazelcast-ssh-key']) {
-                        sh "ssh ${params.HostName} '${verificationCommand}'"
-                    }
-                }
-            }
-        }
-    }
-    
-    post {
-        always {
-            cleanWs()
-        }
-        success {
-            echo "Hazelcast logging configuration completed successfully"
-        }
-        failure {
-            echo "Pipeline failed! Please check the logs for details"
         }
     }
 }
