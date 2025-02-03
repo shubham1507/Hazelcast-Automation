@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+    <Appenders>
+        <RollingFile name="DiagnosticsRollingFile" 
+                     fileName="/opt/HZ/diagnostics/diagnostics.log"
+                     filePattern="/opt/HZ/diagnostics/diagnostics-%i.log">
+            <PatternLayout>
+                <Pattern>%d{ISO8601} %-5p [%c{1}] %m%n</Pattern>
+            </PatternLayout>
+            <Policies>
+                <SizeBasedTriggeringPolicy size="10 MB"/>
+            </Policies>
+            <DefaultRolloverStrategy max="10"/>
+        </RollingFile>
+    </Appenders>
+    <Loggers>
+        <Logger name="com.hazelcast.diagnostics" level="debug" additivity="false">
+            <AppenderRef ref="DiagnosticsRollingFile"/>
+        </Logger>
+        <Root level="info">
+            <AppenderRef ref="DiagnosticsRollingFile"/>
+        </Root>
+    </Loggers>
+</Configuration>

@@ -1,0 +1,74 @@
+- hosts: "{{ target_hosts | default('hazelcast_servers') }}"
+  become: yes
+  vars:
+    hz_root: "/opt/HZ"
+    hz_commonlib: "{{ hz_root }}/commonlib"
+    hz_diagnostics: "{{ hz_root }}/diagnostics"
+    logging_type: "{{ logging_type | default('log4j2') }}"
+    cluster_name: "{{ cluster_name }}"
+    container_name: "{{ container_name | default('container01') }}"
+
+  tasks:
+    - name: Validate Input Parameters
+      assert:
+        that:
+          - cluster_name is defined
+          - logging_type in ['jdk', 'log4j2']
+        fail_msg: "Missing required parameters: cluster_name or invalid logging_type"
+
+    - name: Prepare Logging Directories
+      block:
+        - name: Create Commonlib Directory
+          file:
+            path: "{{ hz_commonlib }}"
+            state: directory
+            mode: '0755'
+
+        - name: Create Diagnostics Directory
+          file:
+            path: "{{ hz_diagnostics }}"
+            state: directory
+            mode: '0755'
+
+    - name: Download Log4j JARs
+      when: logging_type == 'log4j2'
+      get_url:
+        url: "https://repo1.maven.org/maven2/org/apache/logging/log4j/log4j-{{ item }}/2.17.2/log4j-{{ item }}-2.17.2.jar"
+        dest: "{{ hz_commonlib }}/log4j-{{ item }}.jar"
+        mode: '0755'
+      loop:
+        - api
+        - core
+
+    - name: Configure Logging Configuration Files
+      block:
+        - name: Update Hazelcast XML
+          template:
+            src: hazelcast-logging.xml.j2
+            dest: "{{ hz_root }}/{{ cluster_name }}_{{ container_name }}/hazelcast.xml"
+            mode: '0644'
+
+        - name: Configure Log4j2 XML
+          template:
+            src: log4j2-config.xml.j2
+            dest: "{{ hz_root }}/{{ cluster_name }}_{{ container_name }}/etc/log4j2.xml"
+          when: logging_type == 'log4j2'
+
+        - name: Configure JDK Logging Properties
+          template:
+            src: jdk-logging.properties.j2
+            dest: "{{ hz_root }}/{{ cluster_name }}_{{ container_name }}/etc/jdk-logging.properties"
+          when: logging_type == 'jdk'
+
+    - name: Update Container Start Script
+      template:
+        src: startContainer.sh.j2
+        dest: "{{ hz_root }}/hazelcast/bin/startContainer.sh"
+        mode: '0755'
+
+    - name: Restart Hazelcast Container
+      command: >
+        {{ hz_root }}/hazelcast/bin/stopContainer.sh -cn {{ cluster_name }} -cp {{ container_name }} &&
+        {{ hz_root }}/hazelcast/bin/startContainer.sh -cn {{ cluster_name }} -cp {{ container_name }}
+      changed_when: true
+      ignore_errors: yes

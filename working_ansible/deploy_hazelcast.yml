@@ -1,0 +1,53 @@
+---
+- hosts: hazelcast_servers  # Replace with your target hosts
+  become: true
+  tasks:
+    - name: Install required packages
+      apt: 
+        name: 
+          - jq 
+          - unzip 
+        state: present
+
+    - name: Create commonlib directory
+      file: 
+        path: /opt/HZ/commonlib
+        state: directory
+
+    - name: Copy log4j jars 
+      copy:
+        src: "{{ item }}"
+        dest: /opt/HZ/commonlib
+      with_items:
+        - log4j-api-*.jar 
+        - log4j-core-*.jar
+      notify: Restart Hazelcast Service
+
+    - name: Fetch and apply configuration changes 
+      # ... (This section depends on your specific configuration management strategy) 
+      # Example using a template:
+      template:
+        src: templates/hazelcast.xml
+        dest: /path/to/hazelcast/config/hazelcast.xml 
+
+    - name: Restart Hazelcast Service
+      service: 
+        name: hazelcast 
+        state: restarted
+
+    - name: Verify configuration 
+      # ... (Add checks to ensure the configuration is applied correctly)
+
+    handlers:
+      - name: Restart Hazelcast Service
+        service: 
+          name: hazelcast 
+          state: restarted
+
+**2. Inventory File: `hosts`**
+
+```ini
+[hazelcast_servers]
+<hostname1> 
+<hostname2> 
+# Add more hostnames as needed

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hazelcast>
+    <properties>
+        <property name="hazelcast.logging.type">{{ logging_type }}</property>
+        <property name="hazelcast.diagnostics.enabled">true</property>
+        <property name="hazelcast.diagnostics.directory">/opt/HZ/diagnostics</property>
+        <property name="hazelcast.diagnostics.metric.level">info</property>
+        <property name="hazelcast.diagnostics.invocation.sample.period.seconds">10</property>
+        <property name="hazelcast.diagnostics.pending.invocations.period.seconds">30</property>
+        <property name="hazelcast.diagnostics.slowoperations.period.seconds">30</property>
+        <property name="hazelcast.diagnostics.storeLatency.period.seconds">60</property>
+        <property name="hazelcast.diagnostics.stdout">LOGGER</property>
+    </properties>
+    <!-- Additional Hazelcast configuration -->
+</hazelcast>
