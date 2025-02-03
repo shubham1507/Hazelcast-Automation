@@ -1,0 +1,100 @@
+---
+# main.yml
+- name: Configure Hazelcast Logging
+  hosts: "{{ hostname }}"
+  become: yes
+  vars:
+    hz_root: "{{ hz_root | default('/opt/HZ') }}"
+    cluster: "{{ cluster }}"
+    container: "{{ container }}"
+    logging_type: "{{ logging_type }}"
+    env: "{{ env }}"
+
+  tasks:
+    - name: Ensure directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      with_items:
+        - "{{ hz_root }}/diagnostics"
+        - "{{ hz_root }}/{{ cluster }}_{{ container }}/etc"
+        - "{{ hz_root }}/mancenter"
+
+    - name: Create log4j2.xml configuration
+      template:
+        src: templates/log4j2.xml.j2
+        dest: "{{ hz_root }}/{{ cluster }}_{{ container }}/etc/log4j2.xml"
+        mode: '0644'
+      when: logging_type == "log4j2"
+
+    - name: Create JDK logging properties
+      template:
+        src: templates/jdk-logging.properties.j2
+        dest: "{{ hz_root }}/{{ cluster }}_{{ container }}/etc/jdk-logging.properties"
+        mode: '0644'
+      when: logging_type == "jdk"
+
+    - name: Update hazelcast.xml logging configuration
+      xml:
+        path: "{{ hz_root }}/{{ cluster }}/hazelcast.xml"
+        xpath: /hazelcast/properties
+        add_children:
+          - property:
+              name: hazelcast.logging.type
+              _text: "{{ logging_type }}"
+          - property:
+              name: hazelcast.diagnostics.enabled
+              _text: "true"
+          - property:
+              name: hazelcast.diagnostics.directory
+              _text: "/opt/HZ/diagnostics"
+          - property:
+              name: hazelcast.diagnostics.metric.level
+              _text: "info"
+          - property:
+              name: hazelcast.diagnostics.invocation.sample.period.seconds
+              _text: "10"
+          - property:
+              name: hazelcast.diagnostics.pending.invocations.period.seconds
+              _text: "30"
+          - property:
+              name: hazelcast.diagnostics.slowoperations.period.seconds
+              _text: "30"
+          - property:
+              name: hazelcast.diagnostics.storeLatency.period.seconds
+              _text: "60"
+          - property:
+              name: hazelcast.diagnostics.stdout
+              _text: "LOGGER"
+
+    - name: Update startContainer.sh for log4j2
+      blockinfile:
+        path: "{{ hz_root }}/hazelcast/bin/startContainer.sh"
+        marker: "# {mark} LOGGING CONFIGURATION"
+        block: |
+          classPath="$classPath:$HZ_ROOT/commonlib/log4j-api.jar:$HZ_ROOT/commonlib/log4j-core.jar"
+          javaOpts="$javaOpts -Dlog4j.configurationFile=$HZ_ROOT/$sName/etc/log4j2.xml"
+      when: logging_type == "log4j2"
+
+    - name: Update startContainer.sh for JDK logging
+      blockinfile:
+        path: "{{ hz_root }}/hazelcast/bin/startContainer.sh"
+        marker: "# {mark} LOGGING CONFIGURATION"
+        block: |
+          javaOpts="$javaOpts -Djava.util.logging.config.file=$HZ_ROOT/$sName/etc/jdk-logging.properties"
+      when: logging_type == "jdk"
+
+    - name: Update mancenter.conf for log4j2
+      lineinfile:
+        path: "{{ hz_root }}/mancenter/mancenter.conf"
+        regexp: '^JAVA_OPTS='
+        line: 'JAVA_OPTS="-Dlog4j.configurationFile=/opt/HZ/mancenter/log4j2.xml $JAVA_OPTS"'
+      when: logging_type == "log4j2"
+
+    - name: Update mancenter.conf for JDK logging
+      lineinfile:
+        path: "{{ hz_root }}/mancenter/mancenter.conf"
+        regexp: '^JAVA_OPTS='
+        line: 'JAVA_OPTS="-Djava.util.logging.config.file=/opt/HZ/mancenter/jdk-logging.properties $JAVA_OPTS"'
+      when: logging_type == "jdk"
