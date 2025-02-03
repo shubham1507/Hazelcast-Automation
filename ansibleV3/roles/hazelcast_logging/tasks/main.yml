@@ -1,0 +1,116 @@
+---
+- hosts: hazelcast_servers  # Define your Hazelcast server group in inventory
+  become: true
+  vars:
+    hazelcast_home: /opt/HZ  # Adjust if your Hazelcast installation path is different
+    mancenter_home: /opt/HZ/mancenter # Adjust if your Mancenter installation path is different
+    commonlib_path: "{{ hazelcast_home }}/commonlib"
+    diagnostics_dir: "{{ hazelcast_home }}/diagnostics"
+
+  tasks:
+    - name: Create commonlib directory
+      file:
+        path: "{{ commonlib_path }}"
+        state: directory
+        mode: 0755
+
+    - name: Create diagnostics directory
+      file:
+        path: "{{ diagnostics_dir }}"
+        state: directory
+        mode: 0755
+
+    - name: Copy log4j jars to commonlib (if log4j2 is selected)
+      copy:
+        src: "files/log4j-api-2.20.0.jar"  # Replace with your actual jar paths
+        dest: "{{ commonlib_path }}/log4j-api.jar"
+        mode: 0755
+      when: logging_type == "log4j2"
+
+    - name: Copy log4j core jar
+      copy:
+        src: "files/log4j-core-2.20.0.jar"  # Replace with your actual jar paths
+        dest: "{{ commonlib_path }}/log4j-core.jar"
+        mode: 0755
+      when: logging_type == "log4j2"
+
+    - name: Configure log4j2 for Hazelcast Server
+      block:
+        - name: Copy log4j2.xml to Hazelcast instance
+          template:
+            src: "templates/log4j2.xml.j2"
+            dest: "{{ hazelcast_home }}/{{ cluster }}_{{ container }}/etc/log4j2.xml"
+        - name: Update hazelcast.xml with log4j2 settings
+          xml:
+            path: "{{ hazelcast_home }}/{{ cluster }}/hazelcast.xml"
+            xpath: "/hazelcast/properties"
+            add: |
+              <property name="hazelcast.logging.type">log4j2</property>
+              <property name="hazelcast.diagnostics.enabled">true</property>
+              <property name="hazelcast.diagnostics.directory">{{ diagnostics_dir }}</property>
+              <property name="hazelcast.diagnostics.metric.level">info</property>
+              <property name="hazelcast.diagnostics.invocation.sample.period.seconds">10</property>
+              <property name="hazelcast.diagnostics.pending.invocations.period.seconds">30</property>
+              <property name="hazelcast.diagnostics.slowoperations.period.seconds">30</property>
+              <property name="hazelcast.diagnostics.storeLatency.period.seconds">60</property>
+              <property name="hazelcast.diagnostics.stdout">LOGGER</property>
+        - name: Update startContainer.sh with log4j2 settings
+          blockinfile:
+            path: "{{ hazelcast_home }}/hazelcast/bin/startContainer.sh"
+            block: |
+              classPath=$HZ_ROOT/commonlib/log4j-api.jar:$HZ_ROOT/commonlib/log4j-core.jar
+              javaOpts= -Dlog4j.configuration.file=$HZ_ROOT/$sName/etc/log4j2.xml
+      when: logging_type == "log4j2"
+
+    - name: Configure JDK logging for Hazelcast Server
+      block:
+        - name: Copy jdk-logging.properties to Hazelcast instance
+          template:
+            src: "templates/jdk-logging.properties.j2"
+            dest: "{{ hazelcast_home }}/{{ cluster }}_{{ container }}/etc/jdk-logging.properties"
+        - name: Update hazelcast.xml with JDK settings
+          xml:
+            path: "{{ hazelcast_home }}/{{ cluster }}/hazelcast.xml"
+            xpath: "/hazelcast/properties"
+            add: '<property name="hazelcast.logging.type">jdk</property>'
+        - name: Update startContainer.sh with JDK settings
+          blockinfile:
+            path: "{{ hazelcast_home }}/hazelcast/bin/startContainer.sh"
+            block: 'Djava.util.logging.config.file=$HZ_ROOT/$sName/etc/jdk-logging.properties'
+      when: logging_type == "jdk"
+
+    - name: Configure log4j2 for Mancenter
+      block:
+        - name: Copy log4j2.xml to Mancenter
+          template:
+            src: "templates/log4j2.xml.j2"
+            dest: "{{ mancenter_home }}/log4j2.xml"
+        - name: Update mancenter.conf with log4j2 settings
+          blockinfile:
+            path: "{{ mancenter_home }}/mancenter.conf"
+            block: "JAVA_OPTS=\"\$JAVA_OPTS -Dlog4j.configurationFile={{ mancenter_home }}/log4j2.xml\""
+      when: logging_type == "log4j2"
+
+    - name: Configure JDK logging for Mancenter
+      block:
+        - name: Copy jdk-logging.properties to Mancenter
+          template:
+            src: "templates/jdk-logging.properties.j2"
+            dest: "{{ mancenter_home }}/jdk-logging.properties"
+        - name: Update mancenter.conf with JDK settings
+          blockinfile:
+            path: "{{ mancenter_home }}/mancenter.conf"
+            block: "JAVA_OPTS=\"\$JAVA_OPTS -Djava.util.logging.config.file={{ mancenter_home }}/jdk-logging.properties\""
+      when: logging_type == "jdk"
+
+    - name: Restart Hazelcast Servers (Adapt to your restart method)
+      # Example using systemd (adjust as needed)
+      systemd:
+        name: hazelcast-{{ cluster }}-{{ container }} # Replace with your service name pattern
+        state: restarted
+
+    - name: Restart Mancenter (Adapt to your restart method)
+      # Example using systemd (adjust as needed)
+      systemd:
+        name: mancenter  # Replace with your Mancenter service name
+        state: restarted

@@ -1,0 +1,9 @@
+handlers= java.util.logging.FileHandler
+java.util.logging.FileHandler.pattern = {{ diagnostics_dir }}/jdk-diagnostics%u.log
+java.util.logging.FileHandler.limit = 10485760  # 10MB
+java.util.logging.FileHandler.count = 10
+java.util.logging.FileHandler.formatter = java.util.logging.SimpleFormatter
+
+# Set logging levels as needed
+.level= INFO
+com.hazelcast.diagnostics.level=FINE
