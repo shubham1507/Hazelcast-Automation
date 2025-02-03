@@ -1,0 +1,3 @@
+environment: development
+cluster: dev_cluster
+is_mancenter: "No" # or "Yes" based on your setup
