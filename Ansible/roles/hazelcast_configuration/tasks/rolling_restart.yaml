@@ -1,0 +1,6 @@
+---
+- name: Stop Hazelcast container
+  sh: "/opt/HZ/hazelcast/bin/stopContainer.sh -cn {{ cluster_name }} -cp {{ container_name }}"
+
+- name: Start Hazelcast container
+  sh: "/opt/HZ/hazelcast/bin/startContainer.sh -cn {{ cluster_name }} -cp {{ container_name }}"
