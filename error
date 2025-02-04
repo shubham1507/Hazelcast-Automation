@@ -1,147 +1,78 @@
 pipeline {
-    agent { 
-        label 'cm-linux' 
-    }
-    
+    agent { label 'cm-linux' }
+
     stages {
         stage('HZ-configfile-deployment') {
             steps {
                 script {
                     cleanWs()
-                    
+
                     def userName
                     def password
-                    def getFolder = pwd().split("/")
-                    def foldername = getFolder[getFolder.length - 2]
+                    def foldername = pwd().split("/")[-2]
 
-                    // Clone main repository
+                    // Clone Hazelcast Services repository
                     git branch: "main",
                         credentialsId: "SBINET-G3-DEV-GITHUB-OAUTH",
                         url: "https://alm-github.systems.uk.SBI/dtc-hazelcast/Hazelcast-Services.git"
 
-                    // Ensure jq is installed
-                    sh """
-                        if ! command -v jq &> /dev/null; then
-                            echo 'jq not found, installing...'
-                            sudo apt update && sudo apt install -y jq || sudo yum install -y jq || exit 1
-                        fi
-                    """
+                    // Clone jq repository
+                    sh "mkdir jqdir"
+                    dir('jqdir') {
+                        git branch: "master",
+                            credentialsId: "SBINET-G3-DEV-GITHUB-OAUTH",
+                            url: "https://alm-github.systems.uk.SBI/sprintnet/jq.git"
+                    }
 
-                    // Clone jq repository and move the binary
-                    sh """
-                        mkdir -p jqdir
-                        cd jqdir
-                        git clone -b master https://alm-github.systems.uk.SBI/sprintnet/jq.git || exit 1
-                        cd jq
-                        if [ ! -f jq ]; then
-                            echo "Error: jq binary not found after cloning!"
-                            exit 1
-                        fi
-                        chmod +x jq
-                        sudo mv jq /usr/local/bin/
-                    """
+                    sh "chmod +x jqdir/jq"
+                    sh "mv jqdir/jq ./"
 
-                    // Ensure jq works
-                    sh "jq --version"
-
-                    dir("${workspace}/${foldername}/") {
+                    dir("${pwd()}/${foldername}/") {
                         sh "cat Environments.groovy >> env.txt"
                         def envList = readFile 'env.txt'
 
                         properties([
                             parameters([
-                                [
-                                    $class: 'ChoiceParameter',
-                                    choiceType: 'PT_SINGLE_SELECT',
-                                    name: 'Environment',
-                                    script: [
-                                        $class: 'GroovyScript',
-                                        script: "${envList}"
-                                    ]
-                                ],
-                                [
-                                    $class: 'ChoiceParameter',
-                                    choiceType: 'PT_SINGLE_SELECT',
-                                    name: 'Logging_type',
-                                    script: [
-                                        $class: 'GroovyScript',
-                                        script: '''return ["jdk", "log4j2"]'''
-                                    ]
-                                ],
-                                [
-                                    $class: 'ChoiceParameter',
-                                    choiceType: 'PT_SINGLE_SELECT',
-                                    name: 'mancenter',
-                                    script: [
-                                        $class: 'GroovyScript',
-                                        script: '''return ["Yes", "No"]'''
-                                    ]
-                                ],
-                                [
-                                    $class: 'ChoiceParameter',
-                                    choiceType: 'PT_SINGLE_SELECT',
-                                    name: 'backup',
-                                    script: [
-                                        $class: 'GroovyScript',
-                                        script: '''return ["Yes", "No"]'''
-                                    ]
-                                ],
-                                [
-                                    $class: 'StringParameterDefinition',
-                                    name: 'HostName',
-                                    description: 'Please enter Server Name'
-                                ],
-                                [
-                                    $class: 'StringParameterDefinition',
-                                    name: 'sourcePath',
-                                    description: 'Please enter sourcePath'
-                                ],
-                                [
-                                    $class: 'StringParameterDefinition',
-                                    name: 'destPath',
-                                    description: 'Please enter destPath'
-                                ],
-                                [
-                                    $class: 'StringParameterDefinition',
-                                    name: 'artifactId',
-                                    description: 'Please enter artifactId'
-                                ],
-                                [
-                                    $class: 'StringParameterDefinition',
-                                    name: 'cr_number',
-                                    description: 'Please enter CR Number for Production Deployment'
-                                ]
+                                choice(name: 'Environment', choices: envList, description: 'Select environment'),
+                                choice(name: 'Logging_type', choices: ["jdk", "log4j2"], description: 'Select logging type'),
+                                choice(name: 'mancenter', choices: ["Yes", "No"], description: 'Enable mancenter?'),
+                                choice(name: 'backup', choices: ["Yes", "No"], description: 'Enable backup?'),
+                                string(name: 'HostName', defaultValue: '', description: 'Enter Server Name'),
+                                string(name: 'sourcePath', defaultValue: '', description: 'Enter source path'),
+                                string(name: 'destPath', defaultValue: '', description: 'Enter destination path'),
+                                string(name: 'artifactId', defaultValue: '', description: 'Enter artifact ID (optional)'),
+                                string(name: 'cr_number', defaultValue: '', description: 'Enter CR Number for Production Deployment')
                             ])
                         ])
 
                         def templateId = "110777"
                         def containers = "container01"
-                        def jqCli = "/usr/local/bin/jq"
+                        def jqCli = "${pwd()}/jq"
                         def file = "Cluster.json"
                         def clusterSafeUrl = "clusterSafeUrl.json"
                         def clusterNameFile = "ClusterName.json"
-                        def deployments = load "${workspace}/deployment.groovy"
-                        def environment = "${params.Environment}"
+                        def deployments = load "${pwd()}/deployment.groovy"
+                        def environment = params.Environment
 
-                        // Fix JSON parsing issue
                         def Clusters_List = sh(
-                            script: "cat ${file} | ${jqCli} -r '.\"${environment}\"'",
+                            script: "cat ${file} | ${jqCli} -r .'${environment}'",
                             returnStdout: true
                         ).trim()
 
                         def ClusterName = sh(
-                            script: "cat ${clusterNameFile} | ${jqCli} -r '.\"${environment}\"'",
+                            script: "cat ${clusterNameFile} | ${jqCli} -r .'${environment}'",
                             returnStdout: true
                         ).trim()
 
                         def Cluster_Safe_URL = sh(
-                            script: "cat ${clusterSafeUrl} | ${jqCli} -r '.\"${environment}\"'",
+                            script: "cat ${clusterSafeUrl} | ${jqCli} -r .'${environment}'",
                             returnStdout: true
                         ).trim()
 
-                        def Hostname = "${params.HostName}"
-                        if (Hostname == "") {
-                            error "Error! Host_Name is Empty. Please enter Host_Name value."
+                        def Hostname = params.HostName
+
+                        if (Hostname.trim() == "") {
+                            error "Error! Host_Name is empty. Please enter a value."
                         }
 
                         def extravars = """{
@@ -157,28 +88,26 @@ pipeline {
                             "destPath": "${params.destPath}"
                         }"""
 
-                        if(environment.toLowerCase().startsWith("prod")) {
+                        if (environment.toLowerCase().startsWith("prod")) {
                             timeout(time: 120, unit: 'SECONDS') {
                                 def userInput = input(
                                     id: 'Input-username',
+                                    message: 'Provide production deployment details',
                                     parameters: [
-                                        [$class: 'StringParameterDefinition', name: 'Username', description: 'Enter Username'],
-                                        [$class: 'hudson.model.PasswordParameterDefinition', name: 'Password', description: 'Enter Password']
-                                    ],
-                                    submitterParameter: 'approver'
+                                        string(name: 'Username', description: 'Enter Username'),
+                                        password(name: 'Password', description: 'Enter Password')
+                                    ]
                                 )
-                                
+
                                 userName = userInput['Username']
                                 password = userInput['Password'].toString()
-                                templateId = "64468"
-                                def cr_number = "${params.cr_number}"
 
-                                if(cr_number == "") {
-                                    error "Error! CR Number is Empty for Production Environment."
+                                if (params.cr_number.trim() == "") {
+                                    error "Error! CR Number is empty for Production Environment."
                                 }
 
                                 extravars = """{
-                                    "cr_number": "${cr_number}",
+                                    "cr_number": "${params.cr_number}",
                                     "hostname": "${Hostname}",
                                     "artifactId": "${params.artifactId}",
                                     "cluster": "${Clusters_List}",
@@ -193,7 +122,7 @@ pipeline {
                             }
                         }
 
-                        println("Extra-Vars are: " + extravars)
+                        println("Extra-Vars are: ${extravars}")
                         deployments.getApproval("Approve: To update config files into cluster", "HZ-approvers")
                         deployments.triggerAnsibleTower(templateId, environment, extravars, userName, password)
                     }
