@@ -1,0 +1,50 @@
+---
+- name: SSL Setup - Keystore and Certificate Importation
+  hosts: localhost
+  gather_facts: no
+  vars:
+    keystore_path: "/opt/HZ/keystore.jks"
+    keystore_password: "changeit"
+    csr_file: "/opt/HZ/devecbhz.csr"
+    root_certificate: "/opt/HZ/Root.cer"
+    intermediate_certificate: "/opt/HZ/Int.cer"
+    cert_file: "/opt/HZ/ecbdrndev-wdc.hc.cloud.uk.hsbc.cer"
+  tasks:
+    - name: Generate keystore.jks
+      shell: >
+        keytool -genkey -alias devecbhz -keyalg rsa -keysize 2048 -sigalg SHA256withRSA
+        -ext "EKU=serverAuth, clientAuth"
+        -dname "CN=ecbdrndev-wdc.hc.cloud.uk.hsbc, OU=CMB, O=HSBC Holdings plc, L=London, C=GB"
+        -ext "san=dns:ecbdrndev-wdc.hc.cloud.uk.hsbc, dns: ecbdrnsit-wdc.hc.cloud.uk.hsbc, dns: gb125172940.hc.cloud.uk.hsbc, dns: gb125172951.hc.cloud.uk.hsbc"
+        -keystore {{ keystore_path }} -storepass {{ keystore_password }}
+      args:
+        creates: "{{ keystore_path }}"
+
+    - name: Generate CSR
+      shell: >
+        keytool -certreq -alias devecbhz -keystore {{ keystore_path }} -storepass {{ keystore_password }} -file {{ csr_file }}
+      args:
+        creates: "{{ csr_file }}"
+
+    - name: Import Root Certificate into Keystore
+      shell: >
+        keytool -import -trustcacerts -keystore {{ keystore_path }} -file {{ root_certificate }} -alias hsbc_root_ca -storepass {{ keystore_password }}
+      when: root_certificate is defined
+
+    - name: Import Intermediate Certificate into Keystore
+      shell: >
+        keytool -import -trustcacerts -keystore {{ keystore_path }} -file {{ intermediate_certificate }} -alias hsbc_issuing_ca02 -storepass {{ keystore_password }}
+      when: intermediate_certificate is defined
+
+    - name: Import Signed Certificate into Keystore
+      shell: >
+        keytool -import -trustcacerts -keystore {{ keystore_path }} -alias devecbhz -file {{ cert_file }} -storepass {{ keystore_password }}
+      when: cert_file is defined
+
+    - name: Verify Keystore Entries
+      shell: >
+        keytool -list -v -keystore {{ keystore_path }} -storepass {{ keystore_password }} | grep "Alias name\| Entry type:"
+      
+    - name: Verify Keystore Details
+      shell: >
+        keytool -list -keystore {{ keystore_path }} -v -storepass {{ keystore_password }}
