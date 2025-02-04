@@ -19,16 +19,24 @@ pipeline {
                         credentialsId: "SBINET-G3-DEV-GITHUB-OAUTH",
                         url: "https://alm-github.systems.uk.SBI/dtc-hazelcast/Hazelcast-Services.git"
                     
-                    sh("mkdir jqdir")
+                    sh("mkdir -p jqdir")
                     dir('jqdir') {
                         git branch: "master",
                             credentialsId: "SBINET-G3-DEV-GITHUB-OAUTH",
                             url: "https://alm-github.systems.uk.SBI/sprintnet/jq.git"
                     }
-                    
-                    sh "chmod +x ./jq"
-                    sh "mv ./jq ../"
-                    
+
+                    // Ensure jq exists before proceeding
+                    sh """
+                    if [ -f jqdir/jq ]; then
+                        chmod +x jqdir/jq
+                        mv jqdir/jq ${workspace}/jq
+                    else
+                        echo "Error: jq binary not found in jqdir"
+                        exit 1
+                    fi
+                    """
+
                     dir("${workspace}/${foldername}/") {
                         sh "{ set +x; } 2>/dev/null;"
                         sh "cat Environments.groovy >> env.txt"
@@ -97,26 +105,6 @@ pipeline {
                                     ]
                                 ],
                                 [
-                                    $class: 'ChoiceParameter',
-                                    choiceType: 'PT_SINGLE_SELECT',
-                                    filterLength: 1,
-                                    filterable: false,
-                                    name: 'backup',
-                                    script: [
-                                        $class: 'GroovyScript',
-                                        fallbackScript: [
-                                            classpath: [],
-                                            sandbox: true,
-                                            script: "return ['Could not get backup']"
-                                        ],
-                                        script: [
-                                            classpath: [],
-                                            sandbox: true,
-                                            script: '''return ["Yes", "No"]'''
-                                        ]
-                                    ]
-                                ],
-                                [
                                     $class: 'StringParameterDefinition',
                                     defaultValue: '',
                                     description: 'Please enter Server Name',
@@ -125,25 +113,7 @@ pipeline {
                                 [
                                     $class: 'StringParameterDefinition',
                                     defaultValue: '',
-                                    description: 'Please enter sourcePath',
-                                    name: 'sourcePath'
-                                ],
-                                [
-                                    $class: 'StringParameterDefinition',
-                                    defaultValue: '',
-                                    description: 'Please enter destPath',
-                                    name: 'destPath'
-                                ],
-                                [
-                                    $class: 'StringParameterDefinition',
-                                    defaultValue: '',
-                                    description: 'Please enter artifactId',
-                                    name: 'artifactId'
-                                ],
-                                [
-                                    $class: 'StringParameterDefinition',
-                                    defaultValue: '',
-                                    description: 'Please enter CR Number for Production Deployment',
+                                    description: 'Please enter CR Number for Production Deployment (Required for prod)',
                                     name: 'cr_number'
                                 ]
                             ])
@@ -173,12 +143,13 @@ pipeline {
                             returnStdout: true
                         ).trim()
                         
-                        def Hostname = "${params.HostName}"
-                        
+                        def Hostname = "${params.HostName}".trim()
                         if (Hostname == "") {
-                            error("Error! Host_Name is Empty. Please enter Host_Name value.")
+                            println "Error! Host_Name is Empty. Please enter Host_Name value."
+                            sh "exit 1"
                         }
 
+                        // Generate JSON with proper escaping
                         def extravars = """{
                             "hostname": "${Hostname}",
                             "artifactId": "${params.artifactId}",
@@ -192,10 +163,7 @@ pipeline {
                             "destPath": "${params.destPath}"
                         }"""
 
-                        // Validate extravars JSON
-                        sh "echo '${extravars}' | jq '.'"
-
-                        if (environment.toLowerCase().startsWith("prod")) {
+                        if(environment.toLowerCase().startsWith("prod")) {
                             timeout(time: 120, unit: 'SECONDS') {
                                 def userInput = input(
                                     id: 'Input-username',
@@ -218,12 +186,13 @@ pipeline {
                                 userName = userInput['Username']
                                 password = userInput['Password'].toString()
                                 templateId = "64468"
-                                def cr_number = "${params.cr_number}"
-                                
-                                if (cr_number == "") {
-                                    error("Error! CR Number is Empty for Production Environment.")
-                                }
 
+                                def cr_number = "${params.cr_number}".trim()
+                                if(cr_number == "") {
+                                    println "Error! CR Number is required for Production Environment."
+                                    sh "exit 1"
+                                }
+                                
                                 extravars = """{
                                     "cr_number": "${cr_number}",
                                     "hostname": "${Hostname}",
@@ -239,8 +208,8 @@ pipeline {
                                 }"""
                             }
                         }
-
-                        println("Extra-Vars: " + extravars)
+                        
+                        println("Extra-Vars JSON:\n" + extravars)
                         deployments.getApproval("Approve: To update config files into cluster", "HZ-approvers")
                         deployments.triggerAnsibleTower(templateId, environment, extravars, userName, password)
                     }
