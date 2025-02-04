@@ -3,115 +3,98 @@ pipeline {
         label 'cm-linux' 
     }
     
-    environment {
-        ANSIBLE_PLAYBOOK = "/path/to/ssl_setup.yml"
-        ANSIBLE_INVENTORY = "/path/to/inventory"
-    }
-
     stages {
-        stage('SSL-Setup-Initialization') {
+        stage('Checkout Repositories') {
             steps {
                 script {
                     cleanWs()
                     deleteDir()
                     
-                    // Creating necessary directories for SSL setup
-                    sh "mkdir -p /opt/HZ"
-                    sh "touch /opt/HZ/Root.cer"
-                    sh "touch /opt/HZ/Int.cer"
-                    sh "touch /opt/HZ/devecbhz.csr"
+                    def userName
+                    def password
+                    def getFolder = pwd().split("/")
+                    def foldername = getFolder[getFolder.length - 2]
                     
-                    // Example placeholder for the Keystore file
-                    sh "touch /opt/HZ/keystore.jks"
+                    // Checkout SSL Configuration Repository
+                    git branch: "main",
+                        credentialsId: "SBINET-G3-DEV-GITHUB-OAUTH",
+                        url: "https://alm-github.systems.uk.SBI/security/SSL-Config.git"
+                    
+                    // Checkout jq utility repository
+                    sh("mkdir jqdir")
+                    dir('jqdir') {
+                        git branch: "master",
+                            credentialsId: "SBINET-G3-DEV-GITHUB-OAUTH",
+                            url: "https://alm-github.systems.uk.SBI/tools/jq.git"
+                    }
+                    
+                    sh "chmod +x ./jq"
+                    sh "mv ./jq ../"
+                    
+                    // Process environment configurations
+                    dir("${workspace}/${foldername}/") {
+                        sh "{ set +x; } 2>/dev/null;"
+                        sh "cat Environments.groovy >> env.txt"
+                        def envList = readFile 'env.txt'
+                        
+                        properties([
+                            parameters([
+                                [
+                                    $class: 'ChoiceParameter',
+                                    choiceType: 'PT_SINGLE_SELECT',
+                                    name: 'Environment',
+                                    script: [
+                                        $class: 'GroovyScript',
+                                        script: "${envList}"
+                                    ]
+                                ],
+                                [
+                                    $class: 'StringParameterDefinition',
+                                    defaultValue: '',
+                                    description: 'Enter CR Number for Production Deployment',
+                                    name: 'cr_number'
+                                ]
+                            ])
+                        ])
+                    }
                 }
             }
         }
 
-        stage('Generate Keystore') {
+        stage('Generate Keystore and CSR') {
             steps {
                 script {
-                    // Define necessary variables
-                    def keystorePassword = "changeit"
-                    def keystorePath = "/opt/HZ/keystore.jks"
-                    def keystoreAlias = "devecbhz"
-                    def csrFilePath = "/opt/HZ/devecbhz.csr"
-                    
-                    // Generate the Keystore.jks
-                    sh """
-                        keytool -genkey -alias ${keystoreAlias} -keyalg rsa -keysize 2048 -sigalg SHA256withRSA \
-                        -ext "EKU=serverAuth, clientAuth" -dname "CN=ecbdrndev-wdc.hc.cloud.uk.hsbc, OU=CMB, O=HSBC Holdings plc, L=London, C=GB" \
-                        -ext "san=dns:ecbdrndev-wdc.hc.cloud.uk.hsbc, dns: ecbdrnsit-wdc.hc.cloud.uk.hsbc, dns: gb125172940.hc.cloud.uk.hsbc, dns: gb125172951.hc.cloud.uk.hsbc" \
-                        -keystore ${keystorePath} -storepass ${keystorePassword}
-                    """
+                    sh '''
+                    keytool -genkey -alias devecbhz -keyalg rsa -keysize 2048 -sigalg SHA256withRSA \
+                    -ext "EKU=serverAuth, clientAuth" -dname "CN=ecbdrndev-wdc.hc.cloud.uk.hsbc, OU=CMB, O=HSBC Holdings plc, L=London, C=GB" \
+                    -ext "san=dns:ecbdrndev-wdc.hc.cloud.uk.hsbc, dns:ecbdrnsit-wdc.hc.cloud.uk.hsbc" \
+                    -keystore keystore.jks -storepass changeit
+
+                    keytool -certreq -alias devecbhz -keystore keystore.jks -storepass changeit -file devecbhz.csr
+                    '''
                 }
             }
         }
 
-        stage('Generate CSR') {
+        stage('SSL Certificate Import') {
             steps {
                 script {
-                    // Generate the CSR from the Keystore
-                    def keystorePassword = "changeit"
-                    def csrFilePath = "/opt/HZ/devecbhz.csr"
-                    sh """
-                        keytool -certreq -alias devecbhz -keystore /opt/HZ/keystore.jks -storepass ${keystorePassword} -file ${csrFilePath}
-                    """
+                    sh '''
+                    keytool -import -trustcacerts -keystore keystore.jks -alias devecbhz -file ecbdrndev-wdc.hc.cloud.uk.hsbc.cer -storepass changeit
+                    keytool -import -trustcacerts -keystore keystore.jks -file "Root.cer" -alias hsbc_root_ca -storepass changeit
+                    keytool -import -trustcacerts -keystore keystore.jks -file "Int.cer" -alias hsbc_issuing_ca02 -storepass changeit
+                    '''
                 }
             }
         }
 
-        stage('Import Certificates') {
+        stage('Verify SSL Configuration') {
             steps {
                 script {
-                    // Import Root Certificate into the Keystore
-                    def keystorePassword = "changeit"
-                    def rootCertificate = "/opt/HZ/Root.cer"
-                    def intermediateCertificate = "/opt/HZ/Int.cer"
-                    def keystorePath = "/opt/HZ/keystore.jks"
-                    def certFile = "/opt/HZ/devecbhz.cer"
-                    
-                    // Import Root and Intermediate Certificates into the Keystore
-                    sh """
-                        keytool -import -trustcacerts -keystore ${keystorePath} -file ${rootCertificate} -alias hsbc_root_ca -storepass ${keystorePassword}
-                        keytool -import -trustcacerts -keystore ${keystorePath} -file ${intermediateCertificate} -alias hsbc_issuing_ca02 -storepass ${keystorePassword}
-                        keytool -import -trustcacerts -keystore ${keystorePath} -alias devecbhz -file ${certFile} -storepass ${keystorePassword}
-                    """
-                }
-            }
-        }
-
-        stage('Verify Keystore') {
-            steps {
-                script {
-                    // Verify Keystore entries and details
-                    def keystorePassword = "changeit"
-                    def keystorePath = "/opt/HZ/keystore.jks"
-                    
-                    // Verify the entries in the Keystore
-                    sh """
-                        keytool -list -v -keystore ${keystorePath} -storepass ${keystorePassword} | grep "Alias name\| Entry type:"
-                        keytool -list -keystore ${keystorePath} -v -storepass ${keystorePassword}
-                    """
-                }
-            }
-        }
-
-        stage('Ansible SSL Playbook Execution') {
-            steps {
-                script {
-                    def extraVars = [
-                        keystore_path: "/opt/HZ/keystore.jks",
-                        keystore_password: "changeit",
-                        csr_file: "/opt/HZ/devecbhz.csr",
-                        root_certificate: "/opt/HZ/Root.cer",
-                        intermediate_certificate: "/opt/HZ/Int.cer",
-                        cert_file: "/opt/HZ/devecbhz.cer"
-                    ]
-                    
-                    // Call the Ansible playbook for SSL setup
-                    sh """
-                        ansible-playbook -i ${ANSIBLE_INVENTORY} ${ANSIBLE_PLAYBOOK} --extra-vars "${extraVars}"
-                    """
+                    sh '''
+                    keytool -list -keystore keystore.jks -v | grep "Alias name\\|Entry type:"
+                    keytool -list -keystore keystore.jks -v
+                    '''
                 }
             }
         }
