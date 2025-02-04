@@ -8,41 +8,46 @@ pipeline {
             steps {
                 script {
                     cleanWs()
-                    deleteDir()
                     
-                    def userName = ""
-                    def password = ""
+                    def userName
+                    def password
                     def getFolder = pwd().split("/")
                     def foldername = getFolder[getFolder.length - 2]
-                    
-                    // Clone Hazelcast repo
+
+                    // Clone main repository
                     git branch: "main",
                         credentialsId: "SBINET-G3-DEV-GITHUB-OAUTH",
                         url: "https://alm-github.systems.uk.SBI/dtc-hazelcast/Hazelcast-Services.git"
-                    
-                    sh("mkdir -p jqdir")
-                    
-                    dir('jqdir') {
-                        git branch: "master",
-                            credentialsId: "SBINET-G3-DEV-GITHUB-OAUTH",
-                            url: "https://alm-github.systems.uk.SBI/sprintnet/jq.git"
-                    }
-                    
-                    // Ensure jq binary exists
+
+                    // Ensure jq is installed
                     sh """
-                    if [ ! -f ./jq ]; then
-                        echo "Error: jq binary not found!"
-                        exit 1
-                    fi
-                    chmod +x ./jq
-                    mv ./jq ../
+                        if ! command -v jq &> /dev/null; then
+                            echo 'jq not found, installing...'
+                            sudo apt update && sudo apt install -y jq || sudo yum install -y jq || exit 1
+                        fi
                     """
-                    
+
+                    // Clone jq repository and move the binary
+                    sh """
+                        mkdir -p jqdir
+                        cd jqdir
+                        git clone -b master https://alm-github.systems.uk.SBI/sprintnet/jq.git || exit 1
+                        cd jq
+                        if [ ! -f jq ]; then
+                            echo "Error: jq binary not found after cloning!"
+                            exit 1
+                        fi
+                        chmod +x jq
+                        sudo mv jq /usr/local/bin/
+                    """
+
+                    // Ensure jq works
+                    sh "jq --version"
+
                     dir("${workspace}/${foldername}/") {
-                        sh "{ set +x; } 2>/dev/null;"
                         sh "cat Environments.groovy >> env.txt"
                         def envList = readFile 'env.txt'
-                        
+
                         properties([
                             parameters([
                                 [
@@ -51,7 +56,6 @@ pipeline {
                                     name: 'Environment',
                                     script: [
                                         $class: 'GroovyScript',
-                                        sandbox: true,
                                         script: "${envList}"
                                     ]
                                 ],
@@ -61,7 +65,6 @@ pipeline {
                                     name: 'Logging_type',
                                     script: [
                                         $class: 'GroovyScript',
-                                        sandbox: true,
                                         script: '''return ["jdk", "log4j2"]'''
                                     ]
                                 ],
@@ -71,7 +74,6 @@ pipeline {
                                     name: 'mancenter',
                                     script: [
                                         $class: 'GroovyScript',
-                                        sandbox: true,
                                         script: '''return ["Yes", "No"]'''
                                     ]
                                 ],
@@ -81,76 +83,68 @@ pipeline {
                                     name: 'backup',
                                     script: [
                                         $class: 'GroovyScript',
-                                        sandbox: true,
                                         script: '''return ["Yes", "No"]'''
                                     ]
                                 ],
                                 [
                                     $class: 'StringParameterDefinition',
-                                    defaultValue: '',
-                                    description: 'Please enter Server Name',
-                                    name: 'HostName'
+                                    name: 'HostName',
+                                    description: 'Please enter Server Name'
                                 ],
                                 [
                                     $class: 'StringParameterDefinition',
-                                    defaultValue: '',
-                                    description: 'Please enter sourcePath',
-                                    name: 'sourcePath'
+                                    name: 'sourcePath',
+                                    description: 'Please enter sourcePath'
                                 ],
                                 [
                                     $class: 'StringParameterDefinition',
-                                    defaultValue: '',
-                                    description: 'Please enter destPath',
-                                    name: 'destPath'
+                                    name: 'destPath',
+                                    description: 'Please enter destPath'
                                 ],
                                 [
                                     $class: 'StringParameterDefinition',
-                                    defaultValue: '',
-                                    description: 'Please enter artifactId',
-                                    name: 'artifactId'
+                                    name: 'artifactId',
+                                    description: 'Please enter artifactId'
                                 ],
                                 [
                                     $class: 'StringParameterDefinition',
-                                    defaultValue: '',
-                                    description: 'Please enter CR Number for Production Deployment',
-                                    name: 'cr_number'
+                                    name: 'cr_number',
+                                    description: 'Please enter CR Number for Production Deployment'
                                 ]
                             ])
                         ])
 
                         def templateId = "110777"
                         def containers = "container01"
-                        def jqCli = "${workspace}/jq"
+                        def jqCli = "/usr/local/bin/jq"
                         def file = "Cluster.json"
                         def clusterSafeUrl = "clusterSafeUrl.json"
                         def clusterNameFile = "ClusterName.json"
                         def deployments = load "${workspace}/deployment.groovy"
                         def environment = "${params.Environment}"
-                        
+
+                        // Fix JSON parsing issue
                         def Clusters_List = sh(
-                            script: "cat ${file} | ${jqCli} -r .'${environment}'",
+                            script: "cat ${file} | ${jqCli} -r '.\"${environment}\"'",
                             returnStdout: true
                         ).trim()
-                        
+
                         def ClusterName = sh(
-                            script: "cat ${clusterNameFile} | ${jqCli} -r .'${environment}'",
+                            script: "cat ${clusterNameFile} | ${jqCli} -r '.\"${environment}\"'",
                             returnStdout: true
                         ).trim()
-                        
+
                         def Cluster_Safe_URL = sh(
-                            script: "cat ${clusterSafeUrl} | ${jqCli} -r .'${environment}'",
+                            script: "cat ${clusterSafeUrl} | ${jqCli} -r '.\"${environment}\"'",
                             returnStdout: true
                         ).trim()
-                        
+
                         def Hostname = "${params.HostName}"
-                        
                         if (Hostname == "") {
-                            error("Error! Host_Name is Empty. Please enter Host_Name value.")
+                            error "Error! Host_Name is Empty. Please enter Host_Name value."
                         }
 
-                        // Construct extravars JSON correctly
-                        def extravars = """
-                        {
+                        def extravars = """{
                             "hostname": "${Hostname}",
                             "artifactId": "${params.artifactId}",
                             "cluster": "${Clusters_List}",
@@ -161,30 +155,15 @@ pipeline {
                             "Logging_type": "${params.Logging_type}",
                             "sourcePath": "${params.sourcePath}",
                             "destPath": "${params.destPath}"
-                        }
-                        """
-
-                        // Validate JSON
-                        sh """
-                        echo '${extravars}' | jq .
-                        """
+                        }"""
 
                         if(environment.toLowerCase().startsWith("prod")) {
                             timeout(time: 120, unit: 'SECONDS') {
                                 def userInput = input(
                                     id: 'Input-username',
                                     parameters: [
-                                        [
-                                            $class: 'StringParameterDefinition',
-                                            defaultValue: '',
-                                            description: 'Enter Username:',
-                                            name: 'Username'
-                                        ],
-                                        [
-                                            $class: 'hudson.model.PasswordParameterDefinition',
-                                            description: 'Enter Password:',
-                                            name: 'Password'
-                                        ]
+                                        [$class: 'StringParameterDefinition', name: 'Username', description: 'Enter Username'],
+                                        [$class: 'hudson.model.PasswordParameterDefinition', name: 'Password', description: 'Enter Password']
                                     ],
                                     submitterParameter: 'approver'
                                 )
@@ -192,14 +171,13 @@ pipeline {
                                 userName = userInput['Username']
                                 password = userInput['Password'].toString()
                                 templateId = "64468"
-                                
                                 def cr_number = "${params.cr_number}"
+
                                 if(cr_number == "") {
-                                    error("Error! CR Number is Empty for Production Environment.")
+                                    error "Error! CR Number is Empty for Production Environment."
                                 }
-                                
-                                extravars = """
-                                {
+
+                                extravars = """{
                                     "cr_number": "${cr_number}",
                                     "hostname": "${Hostname}",
                                     "artifactId": "${params.artifactId}",
@@ -211,13 +189,11 @@ pipeline {
                                     "Logging_type": "${params.Logging_type}",
                                     "sourcePath": "${params.sourcePath}",
                                     "destPath": "${params.destPath}"
-                                }
-                                """
+                                }"""
                             }
                         }
 
-                        println("Extra-Vars JSON:\n" + extravars)
-
+                        println("Extra-Vars are: " + extravars)
                         deployments.getApproval("Approve: To update config files into cluster", "HZ-approvers")
                         deployments.triggerAnsibleTower(templateId, environment, extravars, userName, password)
                     }
