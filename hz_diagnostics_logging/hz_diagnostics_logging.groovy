@@ -134,8 +134,8 @@ pipeline {
                     git checkout main
                     cd ${WORKSPACE}/${foldername}/${foldername}_config/${foldername}/${Environment}
                     git checkout main
-                    git config user.email "durgesh.tiwari@noexternalmail.sbi.com"
-                    git config --global user.email "alm-github@sbi.com"
+                    git config user.email "snj@.sbi.com"
+                    git config --global user.email "sbi-github@sbi.com"
                     git config user.name "sbiNET-G3-DEV"
                     git revert HEAD
                     git status
