@@ -1,3 +1,4 @@
+//https://chat.qwenlm.ai/c/90ce947b-d0a7-4e26-9b8a-2a8685d069d4
 pipeline {
     agent { label 'cm-linux' }
 
