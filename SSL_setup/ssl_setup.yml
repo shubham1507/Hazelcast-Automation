@@ -1,50 +1,102 @@
 ---
-- name: SSL Setup - Keystore and Certificate Importation
-  hosts: localhost
-  gather_facts: no
+- name: SSL Certificate Setup for Hazelcast
+  hosts: "{{ hostname }}"
+  become: yes
   vars:
-    keystore_path: "/opt/HZ/keystore.jks"
-    keystore_password: "changeit"
-    csr_file: "/opt/HZ/devecbhz.csr"
-    root_certificate: "/opt/HZ/Root.cer"
-    intermediate_certificate: "/opt/HZ/Int.cer"
-    cert_file: "/opt/HZ/ecbdrndev-wdc.hc.cloud.uk.hsbc.cer"
+    cluster_name: "{{ cluster_name }}"
+    domain_name: "{{ domain_name }}"
+    keystore_pass: "changeit"
+    ssl_base_path: "/opt/HZ/{{ cluster_name }}"
+    
   tasks:
+    - name: Create SSL directory
+      file:
+        path: "{{ ssl_base_path }}/ssl"
+        state: directory
+        mode: '0755'
+
     - name: Generate keystore.jks
-      shell: >
-        keytool -genkey -alias devecbhz -keyalg rsa -keysize 2048 -sigalg SHA256withRSA
-        -ext "EKU=serverAuth, clientAuth"
-        -dname "CN=ecbdrndev-wdc.hc.cloud.uk.hsbc, OU=CMB, O=HSBC Holdings plc, L=London, C=GB"
-        -ext "san=dns:ecbdrndev-wdc.hc.cloud.uk.hsbc, dns: ecbdrnsit-wdc.hc.cloud.uk.hsbc, dns: gb125172940.hc.cloud.uk.hsbc, dns: gb125172951.hc.cloud.uk.hsbc"
-        -keystore {{ keystore_path }} -storepass {{ keystore_password }}
+      shell: |
+        keytool -genkey -alias {{ cluster_name }}hz \
+        -keyalg rsa -keysize 2048 \
+        -sigalg SHA256withRSA \
+        -ext "EKU=serverAuth,clientAuth" \
+        -dname "CN={{ domain_name }}, OU=CMB, O=HSBC Holdings plc, L=London, C=GB" \
+        -ext "san=dns:{{ domain_name }}" \
+        -keystore {{ ssl_base_path }}/ssl/keystore.jks \
+        -storepass {{ keystore_pass }} \
+        -noprompt
       args:
-        creates: "{{ keystore_path }}"
+        creates: "{{ ssl_base_path }}/ssl/keystore.jks"
 
     - name: Generate CSR
-      shell: >
-        keytool -certreq -alias devecbhz -keystore {{ keystore_path }} -storepass {{ keystore_password }} -file {{ csr_file }}
+      shell: |
+        keytool -certreq \
+        -alias {{ cluster_name }}hz \
+        -keystore {{ ssl_base_path }}/ssl/keystore.jks \
+        -storepass {{ keystore_pass }} \
+        -file {{ ssl_base_path }}/ssl/{{ cluster_name }}.csr
       args:
-        creates: "{{ csr_file }}"
+        creates: "{{ ssl_base_path }}/ssl/{{ cluster_name }}.csr"
 
-    - name: Import Root Certificate into Keystore
-      shell: >
-        keytool -import -trustcacerts -keystore {{ keystore_path }} -file {{ root_certificate }} -alias hsbc_root_ca -storepass {{ keystore_password }}
-      when: root_certificate is defined
+    - name: Copy root and intermediate certificates
+      copy:
+        src: "{{ item }}"
+        dest: "{{ ssl_base_path }}/"
+        mode: '0644'
+      with_items:
+        - Root.cer
+        - Int.cer
 
-    - name: Import Intermediate Certificate into Keystore
-      shell: >
-        keytool -import -trustcacerts -keystore {{ keystore_path }} -file {{ intermediate_certificate }} -alias hsbc_issuing_ca02 -storepass {{ keystore_password }}
-      when: intermediate_certificate is defined
+    - name: Import root certificate
+      shell: |
+        keytool -import -trustcacerts \
+        -keystore {{ ssl_base_path }}/ssl/keystore.jks \
+        -file {{ ssl_base_path }}/Root.cer \
+        -alias hsbc_root_ca \
+        -storepass {{ keystore_pass }} \
+        -noprompt
+      args:
+        creates: "{{ ssl_base_path }}/ssl/.root_imported"
+      register: root_import
 
-    - name: Import Signed Certificate into Keystore
-      shell: >
-        keytool -import -trustcacerts -keystore {{ keystore_path }} -alias devecbhz -file {{ cert_file }} -storepass {{ keystore_password }}
-      when: cert_file is defined
+    - name: Mark root cert as imported
+      file:
+        path: "{{ ssl_base_path }}/ssl/.root_imported"
+        state: touch
+      when: root_import.changed
 
-    - name: Verify Keystore Entries
-      shell: >
-        keytool -list -v -keystore {{ keystore_path }} -storepass {{ keystore_password }} | grep "Alias name\| Entry type:"
-      
-    - name: Verify Keystore Details
-      shell: >
-        keytool -list -keystore {{ keystore_path }} -v -storepass {{ keystore_password }}
+    - name: Import intermediate certificate
+      shell: |
+        keytool -import -trustcacerts \
+        -keystore {{ ssl_base_path }}/ssl/keystore.jks \
+        -file {{ ssl_base_path }}/Int.cer \
+        -alias hsbc_issuing_ca02 \
+        -storepass {{ keystore_pass }} \
+        -noprompt
+      args:
+        creates: "{{ ssl_base_path }}/ssl/.int_imported"
+      register: int_import
+
+    - name: Mark intermediate cert as imported
+      file:
+        path: "{{ ssl_base_path }}/ssl/.int_imported"
+        state: touch
+      when: int_import.changed
+
+    - name: Verify keystore entries
+      shell: |
+        keytool -list -v -keystore {{ ssl_base_path }}/ssl/keystore.jks \
+        -storepass {{ keystore_pass }} | grep "Alias name\| Entry type:"
+      register: verify_output
+
+    - name: Display verification results
+      debug:
+        var: verify_output.stdout_lines
+
+    - name: Set proper permissions
+      file:
+        path: "{{ ssl_base_path }}/ssl"
+        state: directory
+        mode: '0755'
+        recurse: yes
