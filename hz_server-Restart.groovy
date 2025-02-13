@@ -13,11 +13,13 @@ pipeline {
                     def getFolder = pwd().split("/")
                     def foldername = getFolder[getFolder.length - 2]
                     
+                    // Clone Hazelcast Services repository
                     git branch: "main", credentialsId: "sbiNET-G3-DEV-GITHUB-OAUTH", url: "https://alm-github.systems.uk.sbi/dtc-hazelcast/Hazelcast-Services.git"
                     
                     sh "mkdir jqdir"
                     
                     dir('jqdir') {
+                        // Clone jq repository
                         git branch: "master", credentialsId: "sbiNET-G3-DEV-GITHUB-OAUTH", url: "https://alm-github.systems.uk.sbi/sprintnet/jq.git"
                         sh """
                             chmod +x ./jq
@@ -33,6 +35,7 @@ pipeline {
                         
                         def envList = readFile 'env.txt'
                         
+                        // Defining user input parameters
                         properties([
                             parameters([
                                 [$class: 'ChoiceParameter',
@@ -88,14 +91,23 @@ pipeline {
                         def file = "Cluster.json"
                         def clusterSafeUrl = "clusterSafeUrl.json"
                         
+                        // Fetch Cluster details from JSON files using jq
                         def Clusters_List = sh(script: "cat ${file} | ${jqCli} -r .'${params.Environment}'", returnStdout: true).trim()
                         def Cluster_Safe_URL = sh(script: "cat ${clusterSafeUrl} | ${jqCli} -r .'${params.Environment}'", returnStdout: true).trim()
                         
-                        def Hostname = "${params.Host_Name}"
+                        def Hostname = "${params.Host_Name}".trim()
+
+                        // **Fix 1: Validate if Hostname is empty**
                         if (Hostname == "") {
                             error("Error! Host_Name is Empty. Please enter Host_Name value.")
                         }
-                        
+
+                        // **Fix 2: Validate if the Hostname is reachable**
+                        def hostValidation = sh(script: "ping -c 2 ${Hostname}", returnStatus: true)
+                        if (hostValidation != 0) {
+                            error("Error! Host '${Hostname}' is unreachable. Please check the Host_Name value.")
+                        }
+
                         def extravars = """
                             {
                                 "hostname": "${params.Host_Name}",
@@ -107,6 +119,7 @@ pipeline {
                             }
                         """
                         
+                        // **Production Environment Handling**
                         if (params.Environment.toLowerCase().startsWith("prod")) {
                             timeout(time: 120, unit: 'SECONDS') {
                                 def userInput = input(id: 'Input-username',
@@ -121,6 +134,7 @@ pipeline {
                                 password = userInput['Password'].toString()
                                 templateId = "28669"
                                 
+                                // **Fix 3: Validate CR Number for Production**
                                 if (params.cr_number == "") {
                                     error("Error! CR Number is Empty for Production Environment.")
                                 }
@@ -140,9 +154,16 @@ pipeline {
                         }
                         
                         println("Extra-Vars are: " + extravars)
-                        
-                        // deployments.getApproval("Approve: To execute server ${params.Action} process for server ${params.Host_Name}", "HZ-approvers")
-                        deployments.triggerAnsibleTower(templateId, params.Environment, extravars, userName, password)
+
+                        // **Fix 4: Capture Ansible Execution Result**
+                        def ansibleExecutionResult = deployments.triggerAnsibleTower(templateId, params.Environment, extravars, userName, password)
+
+                        // **Fix 5: Validate if Ansible Execution was Successful**
+                        if (ansibleExecutionResult != "Success") {
+                            error("Ansible execution failed. Please check logs for details.")
+                        }
+
+                        println("Server action '${params.Action}' executed successfully on ${params.Host_Name}")
                     }
                 }
             }
