@@ -88,12 +88,12 @@ pipeline {
                     clusterSafeUrl = "clusterSafeUrl.json"
 
                     environment = "${params.Environment}"
+                    
+                    if (!fileExists(file)) {
+                        error "Error! ${file} not found. Please check the repository."
+                    }
                     Clusters_List = sh(script: "set +x; cat ${file} | ${jqcli} -r . '${environment}'", returnStdout: true).trim()
-
-                    // Debugging Log
-                    echo "Clusters_List extracted: ${Clusters_List}"
-
-                    // Error handling if cluster name is empty
+                    
                     if (!Clusters_List?.trim()) {
                         error("Error! Cluster name could not be determined for environment: ${environment}")
                     }
@@ -102,11 +102,10 @@ pipeline {
                     Hostname = "${params.Host_Name}"
 
                     if (Hostname == "") {
-                        println "Error! Host_Name is Empty. Please enter Host_Name value."
-                        sh "set +x; exit 1"
+                        error "Error! Host_Name is Empty. Please enter Host_Name value."
                     }
 
-                    extravars = "{\"hostname\":\"${params.Host_Name}\", \"clusterName\": \"${Clusters_List}\", \"containerName\": \"${containers}\", \"action\": \"${params.Action}\", \"cluster_safe_url\": \"${Cluster_Safe_URL}\", \"mancenter\": \"${params.Mancenter}\"}"
+                    extravars = "{"hostname":"${params.Host_Name}", "clusterName": "${Clusters_List}", "containerName": "${containers}", "action": "${params.Action}", "cluster_safe_url": "${Cluster_Safe_URL}", "mancenter": "${params.Mancenter}"}"
 
                     if (environment.toLowerCase().startsWith("prod")) {
                         timeout(time: 120, unit: 'SECONDS') {
@@ -124,20 +123,16 @@ pipeline {
                         cr_number = "${params.cr_number}"
 
                         if (cr_number == "") {
-                            println "Error! CR Number is Empty for Production Environment."
-                            sh "set +x; exit 1"
+                            error "Error! CR Number is Empty for Production Environment."
                         }
                     }
 
                     println("Extra-Vars are: " + extravars)
 
-                    // Trigger Ansible Tower and capture the output
                     def ansibleOutput = deployments.triggerAnsibleTower(templateId, environment, extravars, userName, password)
 
-                    // Check if Ansible output contains "no hosts matched" and fail the pipeline
                     if (ansibleOutput.contains("skipping: no hosts matched") || ansibleOutput.contains("No hosts matched")) {
-                        println "Error! Invalid Host_Name provided. Please check and retry."
-                        error("Pipeline failed due to invalid host")
+                        error "Error! Invalid Host_Name provided. Please check and retry."
                     }
                 }
             }
