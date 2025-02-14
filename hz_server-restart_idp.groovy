@@ -11,6 +11,7 @@ pipeline {
                     def getFolder = pwd().split("/")
                     def foldername = getFolder[getFolder.length - 2]
 
+                    // Clone the repository
                     git branch: "main", credentialsId: "HSBCNET-G3-DEV-GITHUB-OAUTH", url: "https://alm-github.systems.uk.hsbc/dtc-hazelcast/Hazelcast-Services.git"
 
                     sh("mkdir jqdir")
@@ -23,13 +24,20 @@ pipeline {
                         sh "chmod +x jq"
                     }
 
-                    // Corrected the mv command
+                    // Move jq to the main workspace
                     sh "mv jqdir/jq ."
 
+                    // Debug: List contents of the folder
+                    sh "ls -l ${WORKSPACE}/${foldername}/"
+
                     dir("${WORKSPACE}/${foldername}/") {
-                        sh "set +x 2>/dev/null"
-                        cat Environments.groovy >> env.txt
-                        envList = readFile 'env.txt'
+                        if (fileExists("Environments.groovy")) {
+                            sh "set +x 2>/dev/null"
+                            sh "cat Environments.groovy > env.txt"
+                            envList = readFile 'env.txt'
+                        } else {
+                            error "Error: Environments.groovy file not found!"
+                        }
                     }
 
                     properties([
@@ -78,6 +86,8 @@ pipeline {
                     containers = "container01"
                     file = "Cluster.json"
                     clusterSafeUrl = "clusterSafeUrl.json"
+
+                    environment = "${params.Environment}"
                     Clusters_List = sh(script: "set +x; cat ${file} | ${jqcli} -r . '${environment}'", returnStdout: true).trim()
                     Cluster_Safe_URL = sh(script: "set +x; cat ${clusterSafeUrl} | ${jqcli} -r . '${environment}'", returnStdout: true).trim()
                     Hostname = "${params.Host_Name}"
@@ -87,7 +97,6 @@ pipeline {
                         sh "set +x; exit 1"
                     }
 
-                    environment = "${params.Environment}"
                     extravars = "{\"hostname\":\"${params.Host_Name}\", \"clusterName\": \"${Clusters_List}\", \"containerName\": \"${containers}\", \"action\": \"${params.Action}\", \"cluster_safe_url\": \"${Cluster_Safe_URL}\", \"mancenter\": \"${params.Mancenter}\"}"
 
                     if (environment.toLowerCase().startsWith("prod")) {
