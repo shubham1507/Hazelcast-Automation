@@ -89,6 +89,15 @@ pipeline {
 
                     environment = "${params.Environment}"
                     Clusters_List = sh(script: "set +x; cat ${file} | ${jqcli} -r . '${environment}'", returnStdout: true).trim()
+
+                    // Debugging Log
+                    echo "Clusters_List extracted: ${Clusters_List}"
+
+                    // Error handling if cluster name is empty
+                    if (!Clusters_List?.trim()) {
+                        error("Error! Cluster name could not be determined for environment: ${environment}")
+                    }
+
                     Cluster_Safe_URL = sh(script: "set +x; cat ${clusterSafeUrl} | ${jqcli} -r . '${environment}'", returnStdout: true).trim()
                     Hostname = "${params.Host_Name}"
 
