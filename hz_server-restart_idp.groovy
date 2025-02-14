@@ -92,6 +92,8 @@ pipeline {
                     if (!fileExists(file)) {
                         error "Error! ${file} not found. Please check the repository."
                     }
+
+                    sh "ls -l ${WORKSPACE}"
                     Clusters_List = sh(script: "set +x; cat ${file} | ${jqcli} -r . '${environment}'", returnStdout: true).trim()
                     
                     if (!Clusters_List?.trim()) {
@@ -105,7 +107,7 @@ pipeline {
                         error "Error! Host_Name is Empty. Please enter Host_Name value."
                     }
 
-                    extravars = "{"hostname":"${params.Host_Name}", "clusterName": "${Clusters_List}", "containerName": "${containers}", "action": "${params.Action}", "cluster_safe_url": "${Cluster_Safe_URL}", "mancenter": "${params.Mancenter}"}"
+                    extravars = "{\"hostname\":\"${params.Host_Name}\", \"clusterName\": \"${Clusters_List}\", \"containerName\": \"${containers}\", \"action\": \"${params.Action}\", \"cluster_safe_url\": \"${Cluster_Safe_URL}\", \"mancenter\": \"${params.Mancenter}\"}"
 
                     if (environment.toLowerCase().startsWith("prod")) {
                         timeout(time: 120, unit: 'SECONDS') {
