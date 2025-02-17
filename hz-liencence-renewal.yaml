@@ -1,0 +1,55 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: hazelcast-server-restart
+  title: Hazelcast - Server Restart
+  description: Template to restart Hazelcast server
+  tags:
+    - jenkins
+    - hazelcast
+spec:
+  owner: Infodir-wstech-idp-dep-adm
+  type: hazelcast
+  parameters:
+    title: Fill in some steps
+    required:
+      - environment
+    properties:
+      environment:
+        title: Environment
+        type: string
+        description: Environment
+        enum:
+          - DEV
+          - SIT
+          - STAGING
+          - Prod_WK
+          - Prod_SY
+          - Prod_ZHJ
+          - Prod_NHC
+          - Prod_IFC
+      action:
+        title: Action
+        type: string
+        description: Choose action
+        enum:
+          - start
+          - stop
+          - restart
+      isMancenter:
+        title: Is Mancenter?
+        type: boolean
+        ui:widget: radio
+        description: Is it a mancenter?
+      hostname:
+        title: Host Name
+        type: string
+        description: Please enter server name
+      crNumber:
+        title: CR Number
+        type: string
+        description: Please enter CR Number for Production Deployment
+        if:
+          properties:
+            environment:
+              in: ['Prod_WK', 'Prod_SY', 'Prod_ZHJ', 'Prod_NHC', 'Prod_IFC']
