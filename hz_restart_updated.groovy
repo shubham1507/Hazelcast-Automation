@@ -35,35 +35,53 @@ pipeline {
                         """
                     }
 
-                    def envList = readFile 'env.txt'
+                    def envList = readFile('env.txt').readLines()
 
                     properties([
                         parameters([
-                            choice(
+                            [$class: 'ChoiceParameter',
+                                choiceType: 'PT_SINGLE_SELECT',
+                                filterLength: 1,
+                                filterable: false,
                                 name: 'Environment',
-                                choices: envList.split("\n").toList(),
-                                description: 'Select Environment'
-                            ),
-                            choice(
+                                script: [
+                                    $class: 'GroovyScript',
+                                    fallbackScript: [
+                                        classpath: [],
+                                        sandbox: true,
+                                        script: "return ['Could not get The environments']"
+                                    ],
+                                    script: "return ${envList}"
+                                ]
+                            ],
+                            [$class: 'ChoiceParameter',
+                                choiceType: 'PT_SINGLE_SELECT',
+                                filterLength: 1,
+                                filterable: false,
                                 name: 'Action',
-                                choices: ['start', 'stop', 'restart'],
-                                description: 'Select Action'
-                            ),
-                            choice(
+                                script: [
+                                    $class: 'GroovyScript',
+                                    fallbackScript: [],
+                                    classpath: [],
+                                    sandbox: true,
+                                    script: "return ['start', 'stop', 'restart']"
+                                ]
+                            ],
+                            [$class: 'ChoiceParameter',
+                                choiceType: 'PT_SINGLE_SELECT',
+                                filterLength: 1,
+                                filterable: false,
                                 name: 'Mancenter',
-                                choices: ['true', 'false'],
-                                description: 'Enable Mancenter (true/false)'
-                            ),
-                            string(
-                                name: 'Host_Name',
-                                defaultValue: '',
-                                description: 'Enter Server Name'
-                            ),
-                            string(
-                                name: 'cr_number',
-                                defaultValue: '',
-                                description: 'Enter CR Number for Production'
-                            )
+                                script: [
+                                    $class: 'GroovyScript',
+                                    fallbackScript: [],
+                                    classpath: [],
+                                    sandbox: true,
+                                    script: "return ['false', 'true']"
+                                ]
+                            ],
+                            [$class: 'StringParameterDefinition', defaultValue: '', description: 'Please enter Server Name', name: 'Host_Name'],
+                            [$class: 'StringParameterDefinition', defaultValue: '', description: 'Please enter CR Number for Production Deployment', name: 'cr_number']
                         ])
                     ])
 
