@@ -33,50 +33,65 @@ pipeline {
                             { set +x; } 2>/dev/null;
                             cat Environments.groovy >> env.txt
                         """
-                        
-                        def envList = readFile 'env.txt'
-
-                        properties([
-                            parameters([
-                                choice(
-                                    name: 'Environment',
-                                    choices: envList.split("\n").toList(),
-                                    description: 'Select Environment'
-                                ),
-                                choice(
-                                    name: 'Action',
-                                    choices: ['start', 'stop', 'restart'],
-                                    description: 'Select Action'
-                                ),
-                                choice(
-                                    name: 'Mancenter',
-                                    choices: ['true', 'false'],
-                                    description: 'Enable Mancenter (true/false)'
-                                ),
-                                string(
-                                    name: 'Host_Name',
-                                    defaultValue: '',
-                                    description: 'Enter Server Name'
-                                ),
-                                string(
-                                    name: 'cr_number',
-                                    defaultValue: '',
-                                    description: 'Enter CR Number for Production'
-                                )
-                            ])
-                        ])
                     }
 
-                    // Validate input parameters
+                    def envList = readFile 'env.txt'
+
+                    properties([
+                        parameters([
+                            choice(
+                                name: 'Environment',
+                                choices: envList.split("\n").toList(),
+                                description: 'Select Environment'
+                            ),
+                            choice(
+                                name: 'Action',
+                                choices: ['start', 'stop', 'restart'],
+                                description: 'Select Action'
+                            ),
+                            choice(
+                                name: 'Mancenter',
+                                choices: ['true', 'false'],
+                                description: 'Enable Mancenter (true/false)'
+                            ),
+                            string(
+                                name: 'Host_Name',
+                                defaultValue: '',
+                                description: 'Enter Server Name'
+                            ),
+                            string(
+                                name: 'cr_number',
+                                defaultValue: '',
+                                description: 'Enter CR Number for Production'
+                            )
+                        ])
+                    ])
+
+                    // Load deployment script
+                    def deployments = load "${WORKSPACE}/deployment.groovy"
+
+                    def templateId = "84533"
+                    def jqcli = "${WORKSPACE}/jq"
+                    def containers = "container01"
+                    def file = "Cluster.json"
+                    def clusterSafeUrl = "clusterSafeUrl.json"
+
+                    def environment = "${params.Environment}"
+
+                    def Clusters_List = sh(script: """{ set +x; } 2>/dev/null; cat ${file} | ${jqcli} -r . '${environment}' """, returnStdout: true).trim()
+                    def Cluster_Safe_URL = sh(script: """{ set +x; } 2>/dev/null; cat ${clusterSafeUrl} | ${jqcli} -r . '${environment}' """, returnStdout: true).trim()
+
                     def Hostname = "${params.Host_Name}"
                     if (Hostname.trim() == "") {
                         error "Error! Host_Name is Empty. Please enter Host_Name."
                     }
 
-                    def environment = "${params.Environment}"
                     def extravars = """{
                         "hostname": "${params.Host_Name}",
+                        "clusterName": "${Clusters_List}",
+                        "containerName": "${containers}",
                         "action": "${params.Action}",
+                        "cluster_safe_url": "${Cluster_Safe_URL}",
                         "mancenter": "${params.Mancenter}"
                     }"""
 
@@ -93,14 +108,21 @@ pipeline {
                             password = userInput['Password'].toString()
                         }
 
+                        environment = "prod"
+                        templateId = "28669"
+
                         def cr_number = "${params.cr_number}"
                         if (cr_number.trim() == "") {
                             error "Error! CR Number is Empty for Production."
                         }
+
                         extravars = """{
                             "cr_number": "${params.cr_number}",
                             "hostname": "${params.Host_Name}",
+                            "clusterName": "${Clusters_List}",
+                            "containerName": "${containers}",
                             "action": "${params.Action}",
+                            "cluster_safe_url": "${Cluster_Safe_URL}",
                             "mancenter": "${params.Mancenter}"
                         }"""
                     }
@@ -108,7 +130,7 @@ pipeline {
                     println("Extra-Vars: " + extravars)
 
                     // Triggering Ansible
-                    def ansibleOutput = deployments.triggerAnsibleTower("templateID", environment, extravars, userName, password)
+                    def ansibleOutput = deployments.triggerAnsibleTower(templateId, environment, extravars, userName, password)
 
                     println "Ansible Output: ${ansibleOutput}"
 
