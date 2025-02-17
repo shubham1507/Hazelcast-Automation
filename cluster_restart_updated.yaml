@@ -1,0 +1,37 @@
+---
+- hosts: "{{ hostname }}"
+  remote_user: hzadm
+  tasks:
+
+    - name: Copying ManCenter.sh script to remote server
+      copy:
+        src: ManCenter.sh
+        dest: /home/hzadm
+        mode: '0755'
+      when: mancenter == "true"
+
+    - name: Run mancenter stop
+      shell: "source /home/hzadm/.bash_profile && nohup /opt/HZ/hazelcast/bin/stopManCenter.sh mancenter"
+      when: 
+        - action == "restart" or action == "stop"
+        - mancenter == "true"
+      register: stop_command_output
+
+    - name: Debug command output (stop)
+      debug:
+        var: stop_command_output
+
+    - name: Run mancenter start
+      shell: "source /home/hzadm/.bash_profile && nohup /opt/HZ/hazelcast/bin/startManCenter.sh mancenter"
+      when: 
+        - action == "restart" or action == "start"
+        - mancenter == "true"
+      register: start_command_output
+
+    - name: Debug command output (start)
+      debug:
+        var: start_command_output
+
+  roles:
+    - role: cluster-restart
+      when: mancenter == "false"
