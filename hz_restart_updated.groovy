@@ -10,8 +10,7 @@ pipeline {
                     
                     def userName = ""
                     def password = ""
-                    
-                    // Extracting folder name dynamically
+
                     def getFolder = pwd().split("/")
                     def foldername = getFolder[getFolder.length - 2]
 
@@ -36,105 +35,48 @@ pipeline {
                         """
                         
                         def envList = readFile 'env.txt'
-                        
+
                         properties([
                             parameters([
-                                [$class: 'ChoiceParameter',
-                                    choiceType: 'PT_SINGLE_SELECT',
-                                    filterLength: 1,
-                                    filterable: false,
+                                choice(
                                     name: 'Environment',
-                                    script: [
-                                        $class: 'GroovyScript',
-                                        fallbackScript: [
-                                            classpath: [],
-                                            sandbox: true,
-                                            script: "return ['Could not get The environments']"
-                                        ],
-                                        script: [
-                                            classpath: [],
-                                            sandbox: true,
-                                            script: "${envList}"
-                                        ]
-                                    ]
-                                ],
-                                [$class: 'ChoiceParameter',
-                                    choiceType: 'PT_SINGLE_SELECT',
-                                    filterLength: 1,
-                                    filterable: false,
+                                    choices: envList.split("\n").toList(),
+                                    description: 'Select Environment'
+                                ),
+                                choice(
                                     name: 'Action',
-                                    script: [
-                                        $class: 'GroovyScript',
-                                        fallbackScript: [],
-                                        script: [
-                                            classpath: [],
-                                            sandbox: true,
-                                            script: "return ['Could not get The environments']"
-                                        ],
-                                        script: [
-                                            classpath: [],
-                                            sandbox: true,
-                                            script: "return ['start', 'stop', 'restart']"
-                                        ]
-                                    ]
-                                ],
-                                [$class: 'ChoiceParameter',
-                                    choiceType: 'PT_SINGLE_SELECT',
-                                    filterLength: 1,
-                                    filterable: false,
+                                    choices: ['start', 'stop', 'restart'],
+                                    description: 'Select Action'
+                                ),
+                                choice(
                                     name: 'Mancenter',
-                                    script: [
-                                        $class: 'GroovyScript',
-                                        fallbackScript: [
-                                            classpath: [],
-                                            sandbox: true,
-                                            script: "return ['Could not get The environments']"
-                                        ],
-                                        script: [
-                                            classpath: [],
-                                            sandbox: true,
-                                            script: "return ['false', 'true']"
-                                        ]
-                                    ]
-                                ],
-                                [$class: 'StringParameterDefinition',
+                                    choices: ['true', 'false'],
+                                    description: 'Enable Mancenter (true/false)'
+                                ),
+                                string(
+                                    name: 'Host_Name',
                                     defaultValue: '',
-                                    description: 'Please enter Server Name',
-                                    name: 'Host_Name'
-                                ],
-                                [$class: 'StringParameterDefinition',
+                                    description: 'Enter Server Name'
+                                ),
+                                string(
+                                    name: 'cr_number',
                                     defaultValue: '',
-                                    description: 'Please enter CR Number for Production Deployment',
-                                    name: 'cr_number'
-                                ]
+                                    description: 'Enter CR Number for Production'
+                                )
                             ])
                         ])
                     }
-                    
-                    // Setting up environment variables
-                    def deployments = load "${WORKSPACE}/deployment.groovy"
-                    def templateId = "84533"
-                    def jqcli = "${WORKSPACE}/jq"
-                    def containers = "container01"
-                    def file = "Cluster.json"
-                    def clusterSafeUrl = "clusterSafeUrl.json"
 
-                    // Fetch cluster details using jq
-                    def Clusters_List = sh(script: """{ set +x; } 2>/dev/null; cat ${file} | ${jqcli} -r . '${params.Environment}' """, returnStdout: true).trim()
-                    def Cluster_Safe_URL = sh(script: """{ set +x; } 2>/dev/null; cat ${clusterSafeUrl} | ${jqcli} -r . '${params.Environment}' """, returnStdout: true).trim()
-
+                    // Validate input parameters
                     def Hostname = "${params.Host_Name}"
-                    if (Hostname == "") {
-                        error "Error! Host_Name is Empty. Please enter Host_Name value."
+                    if (Hostname.trim() == "") {
+                        error "Error! Host_Name is Empty. Please enter Host_Name."
                     }
 
                     def environment = "${params.Environment}"
                     def extravars = """{
                         "hostname": "${params.Host_Name}",
-                        "clusterName": "${Clusters_List}",
-                        "containerName": "${containers}",
                         "action": "${params.Action}",
-                        "cluster_safe_url": "${Cluster_Safe_URL}",
                         "mancenter": "${params.Mancenter}"
                     }"""
 
@@ -143,41 +85,35 @@ pipeline {
                         timeout(time: 120, unit: 'SECONDS') {
                             def userInput = input(id: 'Input-username',
                                 parameters: [
-                                    [$class: 'StringParameterDefinition', defaultValue: '', description: 'Enter Username:', name: 'Username'],
-                                    [$class: 'hudson.model.PasswordParameterDefinition', description: 'Enter Password:', name: 'Password']
+                                    string(name: 'Username', defaultValue: '', description: 'Enter Username'),
+                                    password(name: 'Password', description: 'Enter Password')
                                 ]
                             )
                             userName = userInput['Username']
                             password = userInput['Password'].toString()
                         }
-                        environment = "prod"
-                        templateId = "28669"
+
                         def cr_number = "${params.cr_number}"
-                        if (cr_number == "") {
-                            error "Error! CR Number is Empty for Production Environment."
+                        if (cr_number.trim() == "") {
+                            error "Error! CR Number is Empty for Production."
                         }
                         extravars = """{
                             "cr_number": "${params.cr_number}",
                             "hostname": "${params.Host_Name}",
-                            "clusterName": "${Clusters_List}",
-                            "containerName": "${containers}",
                             "action": "${params.Action}",
-                            "cluster_safe_url": "${Cluster_Safe_URL}",
                             "mancenter": "${params.Mancenter}"
                         }"""
                     }
 
-                    println("Extra-Vars are: " + extravars)
+                    println("Extra-Vars: " + extravars)
 
                     // Triggering Ansible
-                    def ansibleOutput = deployments.triggerAnsibleTower(templateId, environment, extravars, userName, password)
+                    def ansibleOutput = deployments.triggerAnsibleTower("templateID", environment, extravars, userName, password)
 
-                    // Debugging ansible output
                     println "Ansible Output: ${ansibleOutput}"
 
-                    // Check for errors in Ansible output
                     if (ansibleOutput != null && ansibleOutput.contains("skipping: no hosts matched")) {
-                        error "Error! Ansible playbook output indicates no hosts matched."
+                        error "Error! No hosts matched in Ansible playbook."
                     }
                 }
             }
