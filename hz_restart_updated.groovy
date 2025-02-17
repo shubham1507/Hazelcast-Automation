@@ -35,7 +35,7 @@ pipeline {
                         """
                     }
 
-                    def envList = readFile('env.txt').readLines()
+                    def envList = readFile('env.txt').split('\n').collect { it.trim() }
 
                     properties([
                         parameters([
@@ -49,9 +49,12 @@ pipeline {
                                     fallbackScript: [
                                         classpath: [],
                                         sandbox: true,
-                                        script: "return ['Could not get The environments']"
+                                        script: "return ['Could not get the environments']"
                                     ],
-                                    script: "return ${envList}"
+                                    script: """
+                                        def environments = ${envList}
+                                        return environments
+                                    """
                                 ]
                             ],
                             [$class: 'ChoiceParameter',
