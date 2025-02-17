@@ -1,0 +1,59 @@
+---
+- name: Check mandatory variables are defined
+  assert:
+    that:
+      - action is defined
+
+- name: Copying stop_start.sh script to remote server
+  copy:
+    src: stop_start.sh
+    dest: /home/hzadm
+    mode: '0755'
+
+- name: Check that the pid file exists
+  stat:
+    path: /opt/HZ/hazelcast/bin/{{ clusterName }}_{{ containerName }}.pid
+  register: stat_result
+
+- name: Debug pid file status
+  debug:
+    var: stat_result.stdout_lines
+
+- name: Run stop_start.sh script to stop cluster
+  shell: ./stop_start.sh stop "{{ clusterName }}" "{{ containerName }}"
+  args:
+    chdir: /home/hzadm
+  when: action == "restart" or action == "stop"
+  register: command_output
+
+- name: Debug stop command output
+  debug:
+    var: command_output.stdout_lines
+
+- name: Pause for 60 seconds before starting again
+  pause:
+    seconds: 60
+
+- name: Run stop_start.sh script to start cluster
+  shell: ./stop_start.sh start "{{ clusterName }}" "{{ containerName }}"
+  args:
+    chdir: /home/hzadm
+  when: action == "restart" or action == "start"
+  register: command_output
+
+- name: Debug start command output
+  debug:
+    var: command_output.stdout_lines
+
+- name: Remove temporary stop_start.sh file
+  file:
+    path: /home/hzadm/stop_start.sh
+    state: absent
+
+- name: Output of 'ps -ef|grep java |grep "{{ clusterName }}{{ containerName }}"' command
+  shell: ps -ef|grep java |grep "{{ clusterName }}{{ containerName }}"
+  register: command_output
+
+- name: Debug process status output
+  debug:
+    var: command_output.stdout_lines
