@@ -90,10 +90,9 @@ pipeline {
                     def Clusters_List = sh(script: "{ set +x; } 2>/dev/null; cat ${file} | ${jqCli} -r . '${environment}'", returnStdout: true).trim()
                     def Cluster_Safe_URL = sh(script: "{ set +x; } 2>/dev/null; cat ${clusterSafeUrl} | ${jqCli} -r . '${environment}'", returnStdout: true).trim()
                     
-                    // NEW: Enhanced hostname validation
+                    // Enhanced hostname validation
                     def Hostname = "${params.Host_Name}"
                     if (Hostname == "" || Hostname == null) {
-                        // Using error() to properly fail the pipeline instead of just printing
                         error("Host_Name is empty or null. Please provide a valid hostname.")
                     }
                     
@@ -116,7 +115,6 @@ pipeline {
                             
                             def cr_number = "${params.cr_number}"
                             if (cr_number == "") {
-                                // NEW: Using error() instead of println and shell exit
                                 error("CR Number is empty for Production Environment. Please provide a valid CR number.")
                             }
                             
@@ -126,22 +124,26 @@ pipeline {
                     
                     println("Extra-Vars are: " + extravars)
                     
-                    // NEW: Wrapped Ansible execution in try-catch for better error handling
+                    // Updated Ansible execution with null checking
                     try {
                         def ansibleOutput = deployments.triggerAnsibleTower(templateId, environment, extravars, userName, password)
                         
-                        // NEW: Check for no hosts matched condition and fail explicitly
+                        // NEW: Check if ansibleOutput is null before calling contains()
+                        if (ansibleOutput == null) {
+                            error("Ansible execution returned null output. Check Ansible Tower configuration or credentials.")
+                        }
+                        
+                        // NEW: Only check contains() if ansibleOutput is not null
                         if (ansibleOutput.contains("skipping: no hosts matched")) {
                             error("Ansible execution failed: No matching hosts found for ${params.Host_Name}")
                         }
                         
-                        // NEW: Optional - Add additional success validation if needed
-                        println("Ansible execution completed successfully")
+                        println("Ansible execution completed successfully with output: ${ansibleOutput}")
                         
                     } catch (Exception e) {
-                        // NEW: Catch any Ansible execution errors and fail the pipeline
+                        // NEW: Enhanced error message with exception details
                         println "Error during Ansible execution: ${e.getMessage()}"
-                        error("Pipeline failed due to Ansible execution error")
+                        error("Pipeline failed due to Ansible execution error: ${e.toString()}")
                     }
                 }
             }
