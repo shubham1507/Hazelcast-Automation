@@ -1,7 +1,13 @@
 ---
 - hosts: "{{ hostname }}"
   remote_user: hzadm
+  gather_facts: no
+
   tasks:
+    - name: Fail if no hosts matched
+      fail:
+        msg: "No host matched for {{ hostname }}"
+      when: ansible_play_hosts_all | length == 0
 
     - name: Copying ManCenter.sh script to remote server
       copy:
@@ -12,26 +18,21 @@
 
     - name: Run mancenter stop
       shell: "source /home/hzadm/.bash_profile && nohup /opt/HZ/hazelcast/bin/stopManCenter.sh mancenter"
-      when: 
-        - action == "restart" or action == "stop"
-        - mancenter == "true"
-      register: stop_command_output
+      when: (action == "restart" or action == "stop") and mancenter == "true"
+      register: command_output
 
     - name: Debug command output (stop)
       debug:
-        var: stop_command_output
+        var: command_output
 
     - name: Run mancenter start
       shell: "source /home/hzadm/.bash_profile && nohup /opt/HZ/hazelcast/bin/startManCenter.sh mancenter"
-      when: 
-        - action == "restart" or action == "start"
-        - mancenter == "true"
-      register: start_command_output
+      when: (action == "restart" or action == "start") and mancenter == "true"
+      register: command_output
 
     - name: Debug command output (start)
       debug:
-        var: start_command_output
+        var: command_output
 
   roles:
-    - role: cluster-restart
-      when: mancenter == "false"
+    - { role: cluster-restart, when: mancenter == "false" }
