@@ -13,10 +13,11 @@ pipeline {
                     def getFolder = pwd().split("/")
                     def foldername = getFolder[getFolder.length - 2]
                     
-                    // Clone the main repository
+                    // Clone the main repository with debugging
                     git branch: 'main', 
                         credentialsId: 'HSBCNET-G3-DEV-GITHUB-OAUTH', 
                         url: 'https://alm-github.systems.uk.hsbc/dtc-hazelcast/Hazelcast-Services.git'
+                    sh 'ls -la ${WORKSPACE}'  // Debug: Check files after cloning
                     
                     // Clone and handle jq
                     sh 'mkdir jqdir'
@@ -24,13 +25,16 @@ pipeline {
                         git branch: 'master', 
                             credentialsId: 'HSBCNET-G3-DEV-GITHUB-OAUTH', 
                             url: 'https://alm-github.systems.uk.hsbc/sprintnet/jq.git'
-                        sh 'ls -la'  // Debug: List contents to verify jq exists
-                        sh 'chmod +x ./jq || echo "chmod failed - jq not found"'
+                        sh '''
+                            ls -la  // Debug: List contents to verify jq exists
+                            chmod +x ./jq
+                            mv ./jq ../
+                        '''
                     }
-                    sh 'mv ./jqdir/jq ../ || echo "mv failed - jq not found"'
                     
                     dir("${WORKSPACE}/${foldername}/") {
                         sh '{ set +x; } 2>/dev/null'
+                        sh 'ls -la'  // Debug: Check files in the folder
                         sh 'cat Environments.groovy > env.txt'
                         def envList = readFile 'env.txt'
                         
@@ -122,8 +126,31 @@ pipeline {
                     
                     // Ensure environment is defined before using it
                     def environment = params.Environment ?: 'dev'  // Default to 'dev' if not set
-                    def Clusters_List = sh(script: "{ set +x; } 2>/dev/null; cat ${file} | ${jqCli} -r . '${environment}'", returnStdout: true).trim()
-                    def Cluster_Safe_URL = sh(script: "{ set +x; } 2>/dev/null; cat ${clusterSafeUrl} | ${jqCli} -r . '${environment}'", returnStdout: true).trim()
+                    
+                    // Check if files exist before reading
+                    dir("${WORKSPACE}/${foldername}/") {
+                        if (!fileExists('Cluster.json')) {
+                            println "Error! Cluster.json does not exist in ${WORKSPACE}/${foldername}/"
+                            sh '{ set +x; } 2>/dev/null; exit 1'
+                        }
+                        if (!fileExists('clusterSafeUrl.json')) {
+                            println "Error! clusterSafeUrl.json does not exist in ${WORKSPACE}/${foldername}/"
+                            sh '{ set +x; } 2>/dev/null; exit 1'
+                        }
+                        
+                        def Clusters_List = sh(script: "{ set +x; } 2>/dev/null; cat Cluster.json | ${jqCli} -r . '${environment}'", returnStdout: true).trim()
+                        def Cluster_Safe_URL = sh(script: "{ set +x; } 2>/dev/null; cat clusterSafeUrl.json | ${jqCli} -r . '${environment}'", returnStdout: true).trim()
+                        
+                        // Validate critical variables
+                        if (!Clusters_List) {
+                            println "Error! clusterName (Clusters_List) is empty for environment ${environment}."
+                            sh '{ set +x; } 2>/dev/null; exit 1'
+                        }
+                        if (!Cluster_Safe_URL) {
+                            println "Error! cluster_safe_url is empty for environment ${environment}."
+                            sh '{ set +x; } 2>/dev/null; exit 1'
+                        }
+                    }
                     
                     def Hostname = params.Host_Name?.trim()
                     if (!Hostname) {
@@ -131,33 +158,13 @@ pipeline {
                         sh '{ set +x; } 2>/dev/null; exit 1'
                     }
                     
-                    // Validate hostname format (basic check)
+                    // Validate hostname format
                     if (!Hostname =~ /^[a-zA-Z0-9.-]+$/) {
                         println "Error! Invalid hostname format: ${Hostname}"
                         sh '{ set +x; } 2>/dev/null; exit 1'
                     }
                     
-                    // Ensure critical variables are not empty
-                    if (!Clusters_List) {
-                        println "Error! clusterName (Clusters_List) is empty for environment ${environment}."
-                        sh '{ set +x; } 2>/dev/null; exit 1'
-                    }
-                    if (!Cluster_Safe_URL) {
-                        println "Error! cluster_safe_url is empty for environment ${environment}."
-                        sh '{ set +x; } 2>/dev/null; exit 1'
-                    }
-                    
-                    def extravars = [
-                        hostname: Hostname,
-                        clusterName: Clusters_List,
-                        containerName: containers,
-                        action: params.Action,
-                        cluster_safe_url: Cluster_Safe_URL,
-                        mancenter: params.Mancenter
-                    ].collect { k, v -> "\"${k}\": \"${v}\"" }.join(', ')
-                    extravars = "{${extravars}}"
-                    
-                    println "Extra-Vars: ${extravars}"
+                    def extravars = "{\"hostname\":\"${params.Host_Name}\", \"clusterName\":\"${Clusters_List}\", \"containerName\":\"${containers}\", \"action\":\"${params.Action}\", \"cluster_safe_url\":\"${Cluster_Safe_URL}\", \"mancenter\":\"${params.Mancenter}\"}"
                     
                     if (environment.toLowerCase().startsWith('prod')) {
                         timeout(time: 120, unit: 'SECONDS') {
@@ -184,34 +191,19 @@ pipeline {
                                 sh '{ set +x; } 2>/dev/null; exit 1'
                             }
                             
-                            extravars = [
-                                cr_number: cr_number,
-                                hostname: Hostname,
-                                clusterName: Clusters_List,
-                                containerName: containers,
-                                action: params.Action,
-                                cluster_safe_url: Cluster_Safe_URL,
-                                mancenter: params.Mancenter
-                            ].collect { k, v -> "\"${k}\": \"${v}\"" }.join(', ')
-                            extravars = "{${extravars}}"
+                            extravars = "{\"cr_number\":\"${params.cr_number}\", \"hostname\":\"${params.Host_Name}\", \"clusterName\":\"${Clusters_List}\", \"containerName\":\"${containers}\", \"action\":\"${params.Action}\", \"cluster_safe_url\":\"${Cluster_Safe_URL}\", \"mancenter\":\"${params.Mancenter}\"}"
                         }
                     }
                     
-                    // Debug: Print final extravars before Ansible execution
-                    println "Final Extra-Vars for Ansible: ${extravars}"
+                    println("Extra-Vars are: " + extravars)
                     
+                    // Trigger Ansible Tower and capture the output
                     def ansibleOutput = deployments.triggerAnsibleTower(templateId, environment, extravars, userName, password)
-                    println "Ansible Output: ${ansibleOutput}"
                     
-                    // Check for various failure conditions in Ansible output
-                    if (ansibleOutput?.toLowerCase().contains('skipping: no hosts matched')) {
-                        println 'Error! Ansible playbook skipped because no hosts matched'
-                        error 'Pipeline failed due to no matching hosts'
-                    } else if (ansibleOutput?.toLowerCase().contains('failed')) {
-                        println 'Error! Ansible playbook execution failed'
-                        error 'Pipeline failed due to Ansible execution failure'
-                    } else {
-                        println 'Ansible execution completed successfully'
+                    // Check if the output contains "skipping: no hosts matched"
+                    if (ansibleOutput?.contains("skipping: no hosts matched")) {
+                        println 'Error! Ansible playbook output indicates no hosts matched.'
+                        sh '{ set +x; } 2>/dev/null; exit 1'
                     }
                 }
             }
