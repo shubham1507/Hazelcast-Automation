@@ -13,19 +13,25 @@ pipeline {
                     def getFolder = pwd().split("/")
                     def foldername = getFolder[getFolder.length - 2]
                     
-                    git branch: 'main', credentialsId: 'HSBCNET-G3-DEV-GITHUB-OAUTH', url: 'https://alm-github.systems.uk.hsbc/dtc-hazelcast/Hazelcast-Services.git'
+                    // Clone the main repository
+                    git branch: 'main', 
+                        credentialsId: 'HSBCNET-G3-DEV-GITHUB-OAUTH', 
+                        url: 'https://alm-github.systems.uk.hsbc/dtc-hazelcast/Hazelcast-Services.git'
                     
-                    sh("mkdir jqdir")
+                    // Clone and handle jq
+                    sh 'mkdir jqdir'
                     dir('jqdir') {
-                        git branch: 'master', credentialsId: 'HSBCNET-G3-DEV-GITHUB-OAUTH', url: 'https://alm-github.systems.uk.hsbc/sprintnet/jq.git'
-                        sh 'chmod +x ./jq'
+                        git branch: 'master', 
+                            credentialsId: 'HSBCNET-G3-DEV-GITHUB-OAUTH', 
+                            url: 'https://alm-github.systems.uk.hsbc/sprintnet/jq.git'
+                        sh 'ls -la'  // Debug: List contents to verify jq exists
+                        sh 'chmod +x ./jq || echo "chmod failed - jq not found"'
                     }
-                    
-                    sh 'mv ./jq ../'
+                    sh 'mv ./jqdir/jq ../ || echo "mv failed - jq not found"'
                     
                     dir("${WORKSPACE}/${foldername}/") {
-                        sh "{ set +x; } 2>/dev/null;"
-                        cat Environments.groovy >> env.txt
+                        sh '{ set +x; } 2>/dev/null'
+                        sh 'cat Environments.groovy > env.txt'
                         def envList = readFile 'env.txt'
                         
                         properties([
@@ -35,11 +41,18 @@ pipeline {
                                     filterLength: 1,
                                     filterable: false,
                                     name: 'Environment',
-                                    script: [$class: 'GroovyScript',
-                                        fallbackScript: [classpath: [], sandbox: true, script: "return ['Could not get The environments']"],
-                                        script: envList,
-                                        classpath: [],
-                                        sandbox: true
+                                    script: [
+                                        $class: 'GroovyScript',
+                                        fallbackScript: [
+                                            classpath: [],
+                                            sandbox: true,
+                                            script: "return ['Could not get The environments']"
+                                        ],
+                                        script: [
+                                            classpath: [],
+                                            sandbox: true,
+                                            script: envList
+                                        ]
                                     ]
                                 ],
                                 [$class: 'ChoiceParameter',
@@ -47,11 +60,18 @@ pipeline {
                                     filterLength: 1,
                                     filterable: false,
                                     name: 'Action',
-                                    script: [$class: 'GroovyScript',
-                                        fallbackScript: [classpath: [], sandbox: true, script: "return ['Could not get The environments']"],
-                                        script: "return ['start', 'stop', 'restart']",
-                                        classpath: [],
-                                        sandbox: true
+                                    script: [
+                                        $class: 'GroovyScript',
+                                        fallbackScript: [
+                                            classpath: [],
+                                            sandbox: true,
+                                            script: "return ['Could not get The environments']"
+                                        ],
+                                        script: [
+                                            classpath: [],
+                                            sandbox: true,
+                                            script: "return ['start', 'stop', 'restart']"
+                                        ]
                                     ]
                                 ],
                                 [$class: 'ChoiceParameter',
@@ -59,11 +79,18 @@ pipeline {
                                     filterLength: 1,
                                     filterable: false,
                                     name: 'Mancenter',
-                                    script: [$class: 'GroovyScript',
-                                        fallbackScript: [classpath: [], sandbox: true, script: "return ['Could not get The environments']"],
-                                        script: "return ['false', 'true']",
-                                        classpath: [],
-                                        sandbox: true
+                                    script: [
+                                        $class: 'GroovyScript',
+                                        fallbackScript: [
+                                            classpath: [],
+                                            sandbox: true,
+                                            script: "return ['Could not get The environments']"
+                                        ],
+                                        script: [
+                                            classpath: [],
+                                            sandbox: true,
+                                            script: "return ['false', 'true']"
+                                        ]
                                     ]
                                 ],
                                 [$class: 'StringParameterDefinition',
@@ -83,67 +110,108 @@ pipeline {
                     def deployments = load "${WORKSPACE}/deployment.groovy"
                     def templateId = '84533'
                     def jqCli = "${WORKSPACE}/jq"
-                    def containers = 'container01'
+                    def containers = 'container81'
                     def file = 'Cluster.json'
                     def clusterSafeUrl = 'clusterSafeUrl.json'
                     
+                    // Debug: Print variables before processing
+                    println "Environment: ${params.Environment}"
+                    println "Host_Name: ${params.Host_Name}"
+                    println "Action: ${params.Action}"
+                    println "Mancenter: ${params.Mancenter}"
+                    
+                    // Ensure environment is defined before using it
+                    def environment = params.Environment ?: 'dev'  // Default to 'dev' if not set
                     def Clusters_List = sh(script: "{ set +x; } 2>/dev/null; cat ${file} | ${jqCli} -r . '${environment}'", returnStdout: true).trim()
                     def Cluster_Safe_URL = sh(script: "{ set +x; } 2>/dev/null; cat ${clusterSafeUrl} | ${jqCli} -r . '${environment}'", returnStdout: true).trim()
                     
-                    // Enhanced hostname validation
-                    def Hostname = "${params.Host_Name}"
-                    if (Hostname == "" || Hostname == null) {
-                        error("Host_Name is empty or null. Please provide a valid hostname.")
+                    def Hostname = params.Host_Name?.trim()
+                    if (!Hostname) {
+                        println 'Error! Host_Name is Empty. Please enter Host_Name value.'
+                        sh '{ set +x; } 2>/dev/null; exit 1'
                     }
                     
-                    def environment = "${params.Environment}"
-                    def extravars = "{\"hostname\":\"${params.Host_Name}\", \"clusterName\": \"${Clusters_List}\", \"containerName\": \"${containers}\", \"action\": \"${params.Action}\", \"cluster_safe_url\": \"${Cluster_Safe_URL}\", \"mancenter\": \"${params.Mancenter}\"}"
+                    // Validate hostname format (basic check)
+                    if (!Hostname =~ /^[a-zA-Z0-9.-]+$/) {
+                        println "Error! Invalid hostname format: ${Hostname}"
+                        sh '{ set +x; } 2>/dev/null; exit 1'
+                    }
                     
-                    if (environment.toLowerCase().startsWith("prod")) {
+                    // Ensure critical variables are not empty
+                    if (!Clusters_List) {
+                        println "Error! clusterName (Clusters_List) is empty for environment ${environment}."
+                        sh '{ set +x; } 2>/dev/null; exit 1'
+                    }
+                    if (!Cluster_Safe_URL) {
+                        println "Error! cluster_safe_url is empty for environment ${environment}."
+                        sh '{ set +x; } 2>/dev/null; exit 1'
+                    }
+                    
+                    def extravars = [
+                        hostname: Hostname,
+                        clusterName: Clusters_List,
+                        containerName: containers,
+                        action: params.Action,
+                        cluster_safe_url: Cluster_Safe_URL,
+                        mancenter: params.Mancenter
+                    ].collect { k, v -> "\"${k}\": \"${v}\"" }.join(', ')
+                    extravars = "{${extravars}}"
+                    
+                    println "Extra-Vars: ${extravars}"
+                    
+                    if (environment.toLowerCase().startsWith('prod')) {
                         timeout(time: 120, unit: 'SECONDS') {
                             def userInput = input(id: 'Input-username',
                                 parameters: [
-                                    [$class: 'StringParameterDefinition', defaultValue: '', description: 'Enter Username:', name: 'Username'],
-                                    [$class: 'hudson.model.PasswordParameterDefinition', description: 'Enter Password:', name: 'Password']
+                                    [$class: 'StringParameterDefinition', 
+                                     defaultValue: '', 
+                                     description: 'Enter Username:', 
+                                     name: 'Username'],
+                                    [$class: 'hudson.model.PasswordParameterDefinition', 
+                                     description: 'Enter Password:', 
+                                     name: 'Password']
                                 ],
-                                submitterParameter: 'approver'
-                            )
+                                submitterParameter: 'approver')
+                            
                             userName = userInput['Username']
                             password = userInput['Password'].toString()
-                            environment = "prod"
-                            templateId = "28669"
+                            environment = 'prod'
+                            templateId = '28669'
                             
-                            def cr_number = "${params.cr_number}"
-                            if (cr_number == "") {
-                                error("CR Number is empty for Production Environment. Please provide a valid CR number.")
+                            def cr_number = params.cr_number?.trim()
+                            if (!cr_number) {
+                                println 'Error! CR Number is Empty for Production Environment.'
+                                sh '{ set +x; } 2>/dev/null; exit 1'
                             }
                             
-                            extravars = "{\"cr_number\": \"${params.cr_number}\", \"hostname\":\"${params.Host_Name}\", \"clusterName\": \"${Clusters_List}\", \"containerName\": \"${containers}\", \"action\": \"${params.Action}\", \"cluster_safe_url\": \"${Cluster_Safe_URL}\", \"mancenter\": \"${params.Mancenter}\" }"
+                            extravars = [
+                                cr_number: cr_number,
+                                hostname: Hostname,
+                                clusterName: Clusters_List,
+                                containerName: containers,
+                                action: params.Action,
+                                cluster_safe_url: Cluster_Safe_URL,
+                                mancenter: params.Mancenter
+                            ].collect { k, v -> "\"${k}\": \"${v}\"" }.join(', ')
+                            extravars = "{${extravars}}"
                         }
                     }
                     
-                    println("Extra-Vars are: " + extravars)
+                    // Debug: Print final extravars before Ansible execution
+                    println "Final Extra-Vars for Ansible: ${extravars}"
                     
-                    // Updated Ansible execution with null checking
-                    try {
-                        def ansibleOutput = deployments.triggerAnsibleTower(templateId, environment, extravars, userName, password)
-                        
-                        // NEW: Check if ansibleOutput is null before calling contains()
-                        if (ansibleOutput == null) {
-                            error("Ansible execution returned null output. Check Ansible Tower configuration or credentials.")
-                        }
-                        
-                        // NEW: Only check contains() if ansibleOutput is not null
-                        if (ansibleOutput.contains("skipping: no hosts matched")) {
-                            error("Ansible execution failed: No matching hosts found for ${params.Host_Name}")
-                        }
-                        
-                        println("Ansible execution completed successfully with output: ${ansibleOutput}")
-                        
-                    } catch (Exception e) {
-                        // NEW: Enhanced error message with exception details
-                        println "Error during Ansible execution: ${e.getMessage()}"
-                        error("Pipeline failed due to Ansible execution error: ${e.toString()}")
+                    def ansibleOutput = deployments.triggerAnsibleTower(templateId, environment, extravars, userName, password)
+                    println "Ansible Output: ${ansibleOutput}"
+                    
+                    // Check for various failure conditions in Ansible output
+                    if (ansibleOutput?.toLowerCase().contains('skipping: no hosts matched')) {
+                        println 'Error! Ansible playbook skipped because no hosts matched'
+                        error 'Pipeline failed due to no matching hosts'
+                    } else if (ansibleOutput?.toLowerCase().contains('failed')) {
+                        println 'Error! Ansible playbook execution failed'
+                        error 'Pipeline failed due to Ansible execution failure'
+                    } else {
+                        println 'Ansible execution completed successfully'
                     }
                 }
             }
