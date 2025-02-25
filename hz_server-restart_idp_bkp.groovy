@@ -13,21 +13,24 @@ pipeline {
                     def getFolder = pwd().split("/")
                     def foldername = getFolder[getFolder.length - 2]
                     
-                    git branch: 'main', credentialsId: 'HSBCNET-G3-DEV-GITHUB-OAUTH', url: 'https://alm-github.systems.uk.hsbc/dtc-hazelcast/Hazelcast-Services.git'
+                    git branch: 'main', 
+                        credentialsId: 'HSBCNET-G3-DEV-GITHUB-OAUTH', 
+                        url: 'https://alm-github.systems.uk.hsbc/dtc-hazelcast/Hazelcast-Services.git'
                     
-                    sh("mkdir jqdir")
+                    sh 'mkdir jqdir'
                     dir('jqdir') {
-                        git branch: 'master', credentialsId: 'HSBCNET-G3-DEV-GITHUB-OAUTH', url: 'https://alm-github.systems.uk.hsbc/sprintnet/jq.git'
-                        sh 'ls -la'  // Debug: List contents of jqdir after cloning
-                        sh 'chmod +x ./jq || echo "chmod failed - jq not found"'  // Debug: Check if jq exists
+                        git branch: 'master', 
+                            credentialsId: 'HSBCNET-G3-DEV-GITHUB-OAUTH', 
+                            url: 'https://alm-github.systems.uk.hsbc/sprintnet/jq.git'
+                        sh '''
+                            chmod +x ./jq
+                            mv ./jq ../
+                        '''
                     }
                     
-                    sh 'mv ./jqdir/jq ../ || echo "mv failed - jq not found"'  // Adjusted path with debug
-                    
                     dir("${WORKSPACE}/${foldername}/") {
-                        sh "{ set +x; } 2>/dev/null;"
-                        // Note: 'cat Environments.groovy >> env.txt' syntax is incorrect in Groovy DSL; fixing it
-                        sh "cat Environments.groovy > env.txt"
+                        sh '{ set +x; } 2>/dev/null'
+                        sh 'cat Environments.groovy > env.txt'  // Fixed redirection syntax
                         def envList = readFile 'env.txt'
                         
                         properties([
@@ -37,11 +40,18 @@ pipeline {
                                     filterLength: 1,
                                     filterable: false,
                                     name: 'Environment',
-                                    script: [$class: 'GroovyScript',
-                                        fallbackScript: [classpath: [], sandbox: true, script: "return ['Could not get The environments']"],
-                                        script: envList,
-                                        classpath: [],
-                                        sandbox: true
+                                    script: [
+                                        $class: 'GroovyScript',
+                                        fallbackScript: [
+                                            classpath: [],
+                                            sandbox: true,
+                                            script: "return ['Could not get The environments']"
+                                        ],
+                                        script: [
+                                            classpath: [],
+                                            sandbox: true,
+                                            script: envList
+                                        ]
                                     ]
                                 ],
                                 [$class: 'ChoiceParameter',
@@ -49,11 +59,18 @@ pipeline {
                                     filterLength: 1,
                                     filterable: false,
                                     name: 'Action',
-                                    script: [$class: 'GroovyScript',
-                                        fallbackScript: [classpath: [], sandbox: true, script: "return ['Could not get The environments']"],
-                                        script: "return ['start', 'stop', 'restart']",
-                                        classpath: [],
-                                        sandbox: true
+                                    script: [
+                                        $class: 'GroovyScript',
+                                        fallbackScript: [
+                                            classpath: [],
+                                            sandbox: true,
+                                            script: "return ['Could not get The environments']"
+                                        ],
+                                        script: [
+                                            classpath: [],
+                                            sandbox: true,
+                                            script: "return ['start', 'stop', 'restart']"
+                                        ]
                                     ]
                                 ],
                                 [$class: 'ChoiceParameter',
@@ -61,11 +78,18 @@ pipeline {
                                     filterLength: 1,
                                     filterable: false,
                                     name: 'Mancenter',
-                                    script: [$class: 'GroovyScript',
-                                        fallbackScript: [classpath: [], sandbox: true, script: "return ['Could not get The environments']"],
-                                        script: "return ['false', 'true']",
-                                        classpath: [],
-                                        sandbox: true
+                                    script: [
+                                        $class: 'GroovyScript',
+                                        fallbackScript: [
+                                            classpath: [],
+                                            sandbox: true,
+                                            script: "return ['Could not get The environments']"
+                                        ],
+                                        script: [
+                                            classpath: [],
+                                            sandbox: true,
+                                            script: "return ['false', 'true']"
+                                        ]
                                     ]
                                 ],
                                 [$class: 'StringParameterDefinition',
@@ -84,7 +108,7 @@ pipeline {
                     
                     def deployments = load "${WORKSPACE}/deployment.groovy"
                     def templateId = '84533'
-                    def jqCli = "${WORKSPACE}/jq"  // Updated to uppercase WORKSPACE for consistency
+                    def jqCli = "${WORKSPACE}/jq"
                     def containers = 'container01'
                     def file = 'Cluster.json'
                     def clusterSafeUrl = 'clusterSafeUrl.json'
@@ -93,45 +117,54 @@ pipeline {
                     def Cluster_Safe_URL = sh(script: "{ set +x; } 2>/dev/null; cat ${clusterSafeUrl} | ${jqCli} -r . '${environment}'", returnStdout: true).trim()
                     
                     def Hostname = "${params.Host_Name}"
-                    if (Hostname == "") {
-                        println "Error! Host_Name is Empty. Please enter Host_Name value."
-                        sh "{ set +x; } 2>/dev/null; exit 1"
+                    if (Hostname == '') {
+                        println 'Error! Host_Name is Empty. Please enter Host_Name value.'
+                        sh '{ set +x; } 2>/dev/null; exit 1'
                     }
                     
                     def environment = "${params.Environment}"
-                    def extravars = "{\"hostname\":\"${params.Host_Name}\", \"clusterName\": \"${Clusters_List}\", \"containerName\": \"${containers}\", \"action\": \"${params.Action}\", \"cluster_safe_url\": \"${Cluster_Safe_URL}\", \"mancenter\": \"${params.Mancenter}\"}"
+                    def extravars = "{\"hostname\":\"${params.Host_Name}\", \"clusterName\":\"${Clusters_List}\", \"containerName\":\"${containers}\", \"action\":\"${params.Action}\", \"cluster_safe_url\":\"${Cluster_Safe_URL}\", \"mancenter\":\"${params.Mancenter}\"}"
                     
-                    if (environment.toLowerCase().startsWith("prod")) {
+                    if (environment.toLowerCase().startsWith('prod')) {
                         timeout(time: 120, unit: 'SECONDS') {
                             def userInput = input(id: 'Input-username',
                                 parameters: [
-                                    [$class: 'StringParameterDefinition', defaultValue: '', description: 'Enter Username:', name: 'Username'],
-                                    [$class: 'hudson.model.PasswordParameterDefinition', description: 'Enter Password:', name: 'Password']
+                                    [$class: 'StringParameterDefinition', 
+                                     defaultValue: '', 
+                                     description: 'Enter Username:', 
+                                     name: 'Username'],
+                                    [$class: 'hudson.model.PasswordParameterDefinition', 
+                                     description: 'Enter Password:', 
+                                     name: 'Password']
                                 ],
-                                submitterParameter: 'approver'
-                            )
+                                submitterParameter: 'approver')
+                            
                             userName = userInput['Username']
                             password = userInput['Password'].toString()
-                            environment = "prod"
-                            templateId = "28669"
+                            environment = 'prod'
+                            templateId = '28669'
                             
                             def cr_number = "${params.cr_number}"
-                            if (cr_number == "") {
-                                println "Error! CR Number is Empty for Production Environment."
-                                sh "{ set +x; } 2>/dev/null; exit 1"
+                            if (cr_number == '') {
+                                println 'Error! CR Number is Empty for Production Environment.'
+                                sh '{ set +x; } 2>/dev/null; exit 1'
                             }
                             
-                            extravars = "{\"cr_number\": \"${params.cr_number}\", \"hostname\":\"${params.Host_Name}\", \"clusterName\": \"${Clusters_List}\", \"containerName\": \"${containers}\", \"action\": \"${params.Action}\", \"cluster_safe_url\": \"${Cluster_Safe_URL}\", \"mancenter\": \"${params.Mancenter}\" }"
+                            extravars = "{\"cr_number\":\"${params.cr_number}\", \"hostname\":\"${params.Host_Name}\", \"clusterName\":\"${Clusters_List}\", \"containerName\":\"${containers}\", \"action\":\"${params.Action}\", \"cluster_safe_url\":\"${Cluster_Safe_URL}\", \"mancenter\":\"${params.Mancenter}\"}"
                         }
                     }
                     
                     println("Extra-Vars are: " + extravars)
                     
                     def ansibleOutput = deployments.triggerAnsibleTower(templateId, environment, extravars, userName, password)
+                    println("ansible o/p: ${ansibleOutput}")
                     
-                    if (ansibleOutput.contains("skipping: no hosts matched")) {
-                        println "Error! Ansible playbook output indicates no hosts matched."
-                        sh "{ set +x; } 2>/dev/null; exit 1"
+                    def noHostMatched = ansibleOutput.toLowerCase().contains('no hosts matched')
+                    if (noHostMatched) {
+                        println 'Error! Ansible playbook skipped because no hosts matched'
+                        error('pipeline failed')
+                    } else {
+                        println 'Ansible exec completed'
                     }
                 }
             }
