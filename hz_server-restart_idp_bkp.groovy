@@ -18,14 +18,16 @@ pipeline {
                     sh("mkdir jqdir")
                     dir('jqdir') {
                         git branch: 'master', credentialsId: 'HSBCNET-G3-DEV-GITHUB-OAUTH', url: 'https://alm-github.systems.uk.hsbc/sprintnet/jq.git'
-                        sh 'chmod +x ./jq'
+                        sh 'ls -la'  // Debug: List contents of jqdir after cloning
+                        sh 'chmod +x ./jq || echo "chmod failed - jq not found"'  // Debug: Check if jq exists
                     }
                     
-                    sh 'mv ./jq ../'
+                    sh 'mv ./jqdir/jq ../ || echo "mv failed - jq not found"'  // Adjusted path with debug
                     
                     dir("${WORKSPACE}/${foldername}/") {
                         sh "{ set +x; } 2>/dev/null;"
-                        cat Environments.groovy >> env.txt
+                        // Note: 'cat Environments.groovy >> env.txt' syntax is incorrect in Groovy DSL; fixing it
+                        sh "cat Environments.groovy > env.txt"
                         def envList = readFile 'env.txt'
                         
                         properties([
@@ -82,7 +84,7 @@ pipeline {
                     
                     def deployments = load "${WORKSPACE}/deployment.groovy"
                     def templateId = '84533'
-                    def jqCli = "${workspace}/jq"
+                    def jqCli = "${WORKSPACE}/jq"  // Updated to uppercase WORKSPACE for consistency
                     def containers = 'container01'
                     def file = 'Cluster.json'
                     def clusterSafeUrl = 'clusterSafeUrl.json'
