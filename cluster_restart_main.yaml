@@ -1,4 +1,3 @@
----
 - name: Check mandatory variables are defined
   assert:
     that:
@@ -15,7 +14,7 @@
     path: /opt/HZ/hazelcast/bin/{{ clusterName }}_{{ containerName }}.pid
   register: stat_result
 
-- name: Debug pid file status
+- name: Debug pid file existence
   debug:
     var: stat_result.stdout_lines
 
@@ -50,10 +49,10 @@
     path: /home/hzadm/stop_start.sh
     state: absent
 
-- name: Output of 'ps -ef|grep java |grep "{{ clusterName }}{{ containerName }}"' command
-  shell: ps -ef|grep java |grep "{{ clusterName }}{{ containerName }}"
+- name: Output of 'ps -ef|grep java |grep "{{ clusterName }} {{ containerName }}"' command
+  shell: ps -ef|grep java |grep "{{ clusterName }} {{ containerName }}"
   register: command_output
 
-- name: Debug process status output
+- name: Debug process output
   debug:
     var: command_output.stdout_lines
