@@ -1,7 +1,8 @@
-- name: Check mandatory variables are defined
+---
+- name: 'Check mandatory variables are defined'
   assert:
     that:
-      - action is defined
+    - action is defined
 
 - name: Copying stop_start.sh script to remote server
   copy:
@@ -14,9 +15,15 @@
     path: /opt/HZ/hazelcast/bin/{{ clusterName }}_{{ containerName }}.pid
   register: stat_result
 
-- name: Debug pid file existence
-  debug:
-    var: stat_result.stdout_lines
+- name: Check if process is running
+  shell: "ps -p $(cat /opt/HZ/hazelcast/bin/{{ clusterName }}_{{ containerName }}.pid) > /dev/null 2>&1"
+  register: pid_check
+  ignore_errors: true
+
+- name: Fail if process not running
+  fail:
+    msg: "Process not running according to PID file."
+  when: stat_result.stat.exists and pid_check.rc != 0
 
 - name: Run stop_start.sh script to stop cluster
   shell: ./stop_start.sh stop "{{ clusterName }}" "{{ containerName }}"
@@ -24,35 +31,41 @@
     chdir: /home/hzadm
   when: action == "restart" or action == "stop"
   register: command_output
+  failed_when: command_output.rc != 0
+  ignore_errors: true # added ignore errors
 
-- name: Debug stop command output
+- name: Stop output
   debug:
-    var: command_output.stdout_lines
+    msg: "Stop output: {{ command_output.stdout }}"
+  when: command_output is defined # added when command_output is defined
 
 - name: Pause for 60 seconds before starting again
   pause:
     seconds: 60
+  when: action == "restart"
 
-- name: Run stop_start.sh script to start cluster
+- name: Run stop_start.sh script start cluster
   shell: ./stop_start.sh start "{{ clusterName }}" "{{ containerName }}"
   args:
     chdir: /home/hzadm
   when: action == "restart" or action == "start"
-  register: command_output
+  register: command_output_start
+  failed_when: command_output_start.rc != 0
+  ignore_errors: true # added ignore errors
 
-- name: Debug start command output
+- name: Start output
   debug:
-    var: command_output.stdout_lines
+    msg: "Start output: {{ command_output_start.stdout }}"
+  when: command_output_start is defined # added when command_output_start is defined
 
-- name: Remove temporary stop_start.sh file
+- name: Remove temporary stop_start.sh file (delete file)
   file:
     path: /home/hzadm/stop_start.sh
     state: absent
 
-- name: Output of 'ps -ef|grep java |grep "{{ clusterName }} {{ containerName }}"' command
-  shell: ps -ef|grep java |grep "{{ clusterName }} {{ containerName }}"
-  register: command_output
-
-- name: Debug process output
+- name: Output of 'ps -ef|grep java |grep "{{ clusterName }}_{{ containerName }}"' command
+  shell: ps -ef|grep java |grep "{{ clusterName }}_{{ containerName }}"
+  register: command_output_process
+- name: java process check
   debug:
-    var: command_output.stdout_lines
+    msg: "Java process check: {{ command_output_process.stdout_lines }}"
