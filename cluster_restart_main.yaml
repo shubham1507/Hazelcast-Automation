@@ -10,20 +10,18 @@
     dest: /home/hzadm
     mode: '0755'
 
-- name: Initialize command_output to default if not present.
-  set_fact:
-    command_output:
-      skipped: true
-      stdout: "Process not running or stop command skipped."
-  when: command_output is not defined
-
-- name: Run stop_start.sh script to stop cluster
-  shell: ./stop_start.sh stop "{{ clusterName }}" "{{ containerName }}"
-  args:
-    chdir: /home/hzadm
-  when: action == "restart" or action == "stop"
-  register: command_output
-  ignore_errors: true
+- block:
+    - name: Run stop_start.sh script to stop cluster
+      shell: ./stop_start.sh stop "{{ clusterName }}" "{{ containerName }}"
+      args:
+        chdir: /home/hzadm
+      register: command_output
+  rescue:
+    - name: Handle skipped stop command
+      set_fact:
+        command_output:
+          skipped: true
+          stdout: "Process not running or stop command skipped."
 
 - name: Stop output
   debug:
@@ -49,18 +47,22 @@
     seconds: 60
   when: action == "restart"
 
-- name: Run stop_start.sh script start cluster
-  shell: ./stop_start.sh start "{{ clusterName }}" "{{ containerName }}"
-  args:
-    chdir: /home/hzadm
-  when: action == "restart" or action == "start"
-  register: command_output_start
-  ignore_errors: true
+- block:
+    - name: Run stop_start.sh script start cluster
+      shell: ./stop_start.sh start "{{ clusterName }}" "{{ containerName }}"
+      args:
+        chdir: /home/hzadm
+      register: command_output_start
+  rescue:
+    - name: Handle skipped start command
+      set_fact:
+        command_output_start:
+          skipped: true
+          stdout: "Start command skipped."
 
 - name: Start output
   debug:
     msg: "Start output: {{ command_output_start.stdout }}"
-  when: command_output_start is defined
 
 - name: Remove temporary stop_start.sh file (delete file)
   file:
