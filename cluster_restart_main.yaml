@@ -10,6 +10,13 @@
     dest: /home/hzadm
     mode: '0755'
 
+- name: Initialize command_output to default if not present.
+  set_fact:
+    command_output:
+      skipped: true
+      stdout: "Process not running or stop command skipped."
+  when: command_output is not defined
+
 - name: Run stop_start.sh script to stop cluster
   shell: ./stop_start.sh stop "{{ clusterName }}" "{{ containerName }}"
   args:
@@ -18,17 +25,9 @@
   register: command_output
   ignore_errors: true
 
-- name: Register command_output if skipped
-  set_fact:
-    command_output:
-      skipped: true
-      stdout: "Process not running, stop command skipped."
-  when: command_output is not defined
-
 - name: Stop output
   debug:
     msg: "Stop output: {{ command_output.stdout }}"
-  when: command_output is defined
 
 - name: Check that the pid file exists
   stat:
