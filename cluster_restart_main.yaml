@@ -10,6 +10,19 @@
     dest: /home/hzadm
     mode: '0755'
 
+- name: Run stop_start.sh script to stop cluster
+  shell: ./stop_start.sh stop "{{ clusterName }}" "{{ containerName }}"
+  args:
+    chdir: /home/hzadm
+  when: action == "restart" or action == "stop"
+  register: command_output
+  ignore_errors: true
+
+- name: Stop output
+  debug:
+    msg: "Stop output: {{ command_output.stdout }}"
+  when: command_output is defined
+
 - name: Check that the pid file exists
   stat:
     path: /opt/HZ/hazelcast/bin/{{ clusterName }}_{{ containerName }}.pid
@@ -23,21 +36,7 @@
 - name: Fail if process not running
   fail:
     msg: "Process not running according to PID file."
-  when: stat_result.stat.exists and pid_check.rc != 0
-
-- name: Run stop_start.sh script to stop cluster
-  shell: ./stop_start.sh stop "{{ clusterName }}" "{{ containerName }}"
-  args:
-    chdir: /home/hzadm
-  when: action == "restart" or action == "stop"
-  register: command_output
-  failed_when: command_output.rc != 0
-  ignore_errors: true # added ignore errors
-
-- name: Stop output
-  debug:
-    msg: "Stop output: {{ command_output.stdout }}"
-  when: command_output is defined # added when command_output is defined
+  when: stat_result.stat.exists and pid_check.rc != 0 and action == "restart"
 
 - name: Pause for 60 seconds before starting again
   pause:
@@ -50,13 +49,12 @@
     chdir: /home/hzadm
   when: action == "restart" or action == "start"
   register: command_output_start
-  failed_when: command_output_start.rc != 0
-  ignore_errors: true # added ignore errors
+  ignore_errors: true
 
 - name: Start output
   debug:
     msg: "Start output: {{ command_output_start.stdout }}"
-  when: command_output_start is defined # added when command_output_start is defined
+  when: command_output_start is defined
 
 - name: Remove temporary stop_start.sh file (delete file)
   file:
