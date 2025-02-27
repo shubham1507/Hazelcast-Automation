@@ -15,7 +15,7 @@
       register: command_output
       failed_when: command_output.rc != 0
 
-    # Updated task: Added 'when' condition to skip if 'Run mancenter stop' was not executed
+    # Added 'when' condition to skip if 'Run mancenter stop' was not executed
     - name: ManCenter stop output
       debug:
         msg: "ManCenter stop output: {{ command_output.stdout }}"
@@ -28,9 +28,12 @@
       register: command_output
       failed_when: command_output.rc != 0
 
+    # Added 'when' condition to skip if 'Run mancenter start' was not executed
     - name: ManCenter start output
       debug:
         msg: "ManCenter start output: {{ command_output.stdout }}"
+      # Condition ensures this task runs only if the start task ran successfully and wasn't skipped
+      when: (action == "restart" or action == "start") and mancenter == "true" and not command_output.skipped | default(true)
 
   roles:
     - role: cluster-restart
