@@ -1,14 +1,7 @@
 ---
 - hosts: "{{ hostname }}"
   remote_user: hzadm
-  gather_facts: no
-
   tasks:
-    - name: Fail if no hosts matched
-      fail:
-        msg: "No host matched for {{ hostname }}"
-      when: ansible_play_hosts_all | length == 0
-
     - name: Copying ManCenter.sh script to remote server
       copy:
         src: ManCenter.sh
@@ -20,19 +13,25 @@
       shell: "source /home/hzadm/.bash_profile && nohup /opt/HZ/hazelcast/bin/stopManCenter.sh mancenter"
       when: (action == "restart" or action == "stop") and mancenter == "true"
       register: command_output
+      failed_when: command_output.rc != 0
 
-    - name: Debug command output (stop)
+    # Updated task: Added 'when' condition to skip if 'Run mancenter stop' was not executed
+    - name: ManCenter stop output
       debug:
-        var: command_output
+        msg: "ManCenter stop output: {{ command_output.stdout }}"
+      # Condition ensures this task runs only if the stop task ran successfully and wasn't skipped
+      when: (action == "restart" or action == "stop") and mancenter == "true" and not command_output.skipped | default(true)
 
     - name: Run mancenter start
       shell: "source /home/hzadm/.bash_profile && nohup /opt/HZ/hazelcast/bin/startManCenter.sh mancenter"
       when: (action == "restart" or action == "start") and mancenter == "true"
       register: command_output
+      failed_when: command_output.rc != 0
 
-    - name: Debug command output (start)
+    - name: ManCenter start output
       debug:
-        var: command_output
+        msg: "ManCenter start output: {{ command_output.stdout }}"
 
   roles:
-    - { role: cluster-restart, when: mancenter == "false" }
+    - role: cluster-restart
+      when: mancenter == "false"
