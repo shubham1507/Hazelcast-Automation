@@ -1,0 +1,114 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: hazelcast-license-renewal
+  title: Hazelcast - License Renewal
+  description: Template to Hazelcast - License Renewal
+  tags:
+  - jenkins
+spec:
+  owner: Infodir-wstech-idp-dep-adm
+  type: hazelcast
+  parameters:
+    title: Fill in some steps
+    required:
+    - serviceName
+    - environment
+    - hostname
+    - licenseKey
+    properties:
+      serviceName:
+        title: Service Name
+        type: string
+        description: Choose service name
+        enum:
+        - CHINA-DRN
+        - UK-DRN
+      hostname:
+        title: Host Name
+        type: string
+        description: Please enter host name
+      licenseKey:
+        title: License key
+        type: string
+        description: Please enter license key
+        ui:
+          widget: password
+    dependencies:
+      serviceName:
+        allOf:
+        - if:
+            properties:
+              serviceName:
+                enum:
+                - CHINA-DRN
+          then:
+            properties:
+              environment:
+                title: Environment
+                type: string
+                description: Environment
+                default: NA
+                enum:
+                - SDE1
+                - SDE2
+                - SDE3
+                - SDE4
+                - PreProd
+                - Prod_ZHJ
+                - Prod_NHC
+                - Prod_IFC
+        - if:
+            properties:
+              serviceName:
+                enum:
+                - UK-DRN
+          then:
+            properties:
+              environment:
+                title: Environment
+                type: string
+                description: Environment
+                default: NA
+                enum:
+                - DEV
+                - SIT
+                - STAGING
+                - Prod_WK
+                - Prod_SY
+      environment:
+        allOf:
+        - if:
+            properties:
+              environment:
+                enum:
+                - Prod_WK
+                - Prod_SY
+                - Prod_ZHJ
+                - Prod_NHC
+                - Prod_IFC
+          then:
+            properties:
+              crNumber:
+                title: Change Number
+                type: string
+                description: CHG Number
+                default: NA
+
+  steps:
+  - action: cr:validation
+    id: crValidationStep
+    name: CR Validation
+    if: ${{ parameters.environment.toLowerCase().includes("prod") }}
+    input:
+      crNumber: ${{ parameters.referenceNumber }}
+      environment: ${{ parameters.environment }}
+  - action: calljenkins:job:build
+    id: callJenkins
+    name: License renewal
+    input:
+      jobUrl: https://almjenkinsci-prod.systems.uk.hsbc/wsit-digital/job/hsbc-11385924-wsit-platform/job/CAAS/job/Hazelcast/job/Hazelcast-Services/job/${{parameters.serviceName}}/job/License-Renewal/
+      parameters:
+        Environment: ${{ parameters.environment }}
+        LicenseKey: ${{ parameters.licenseKey }}  # Changed from licenseKey to LicenseKey
+        Host_Name: ${{ parameters.hostname }}
