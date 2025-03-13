@@ -1,0 +1,41 @@
+# Sample configs for AppDynamics Distribution for OpenTelemetry Collector
+# Check https://docs.appdynamics.com/appd/22.x/latest/en/application-monitoring/appdynamics-for-opentelemetry/configure-collector for details
+processors:
+  resource:
+    attributes:
+    - key: appdynamics.controller.account
+      action: upsert
+      value: "HSBCCMBtest"  # Updated with specific account name
+    - key: appdynamics.controller.host
+      action: upsert
+      value: "hsbccmbtest.saas.appdynamics.com"  # Updated with specific host
+    - key: appdynamics.controller.port
+      action: upsert
+      value: 443
+#    - key: service.namespace
+#      action: upsert
+#      value: Otel-david  # Commented out as in the second file
+#    - key: service.name
+#      action: upsert
+#      value: JavaApp     # Commented out as in the second file
+  batch:
+    timeout: 30s
+    send_batch_size: 90
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+exporters:
+  otlphttp:
+    endpoint: "https://pdx-sls-agent-api.saas.appdynamics.com"  # Updated with specific endpoint
+    headers: 
+      "x-api-key": "a7e64ab5808b89e9eb4a06788dfa386f7dc9dff52d95079dd9af35c706b84657"  # Updated with specific API key
+  logging:
+    loglevel: debug  # Added logging exporter from the second file
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [resource, batch]
+      exporters: [otlphttp, logging]  # Updated to include both exporters
